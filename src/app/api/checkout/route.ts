@@ -2,21 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!
-)
-
 export async function POST(req: NextRequest) {
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  )
+
   const { priceId, tenantId, modules, billingCycle } = await req.json()
 
-  // Recupera tenant
   const { data: tenant } = await supabase.from('tenants').select('*').eq('id', tenantId).single()
   if (!tenant) return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
 
   let customerId = tenant.stripe_customer_id
-
-  // Crea customer Stripe se non esiste
   if (!customerId) {
     const customer = await stripe.customers.create({
       email: tenant.email,

@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!
-)
-
 export async function POST(req: NextRequest) {
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!
+  )
+
   const body = await req.text()
   const sig = req.headers.get('stripe-signature')!
 
@@ -29,20 +30,19 @@ export async function POST(req: NextRequest) {
       const sub = await stripe.subscriptions.retrieve(session.subscription as string)
       const modules = (sub.metadata?.modules || '').split(',').filter(Boolean)
 
-      // Attiva abbonamento
       await supabase.from('tenants').update({
         status: 'active',
         stripe_subscription_id: sub.id,
-        onboarding_step: 5, // completato
+        onboarding_step: 5,
       }).eq('id', tenantId)
 
-      // Aggiorna moduli attivi
       if (modules.length > 0) {
         await supabase.from('tenant_modules').delete().eq('tenant_id', tenantId)
-        await supabase.from('tenant_modules').insert(modules.map((m: string) => ({ tenant_id: tenantId, module: m, is_active: true })))
+        await supabase.from('tenant_modules').insert(
+          modules.map((m: string) => ({ tenant_id: tenantId, module: m, is_active: true }))
+        )
       }
 
-      // Inserisci record abbonamento
       await supabase.from('subscriptions').upsert([{
         tenant_id: tenantId,
         stripe_subscription_id: sub.id,
@@ -59,11 +59,9 @@ export async function POST(req: NextRequest) {
       const sub = event.data.object as Stripe.Subscription
       const tenantId = getTenantId(sub)
       if (!tenantId) break
-
       await supabase.from('tenants').update({
         status: sub.status === 'active' || sub.status === 'trialing' ? 'active' : sub.status,
       }).eq('id', tenantId)
-
       await supabase.from('subscriptions').update({
         status: sub.status,
         current_period_start: new Date((sub as any).current_period_start * 1000).toISOString(),
@@ -77,7 +75,6 @@ export async function POST(req: NextRequest) {
       const sub = event.data.object as Stripe.Subscription
       const tenantId = getTenantId(sub)
       if (!tenantId) break
-
       await supabase.from('tenants').update({ status: 'cancelled' }).eq('id', tenantId)
       await supabase.from('subscriptions').update({ status: 'cancelled' }).eq('stripe_subscription_id', sub.id)
       break
