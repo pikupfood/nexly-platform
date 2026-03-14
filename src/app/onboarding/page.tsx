@@ -123,16 +123,29 @@ function OnboardingContent() {
   const goToCheckout = async () => {
     setSaving(true)
     const priceId = getStripePrice()
-    if (!priceId) { setSaving(false); return }
+    if (!priceId) { setSaving(false); alert('Aucun plan sélectionné'); return }
 
-    const res = await fetch('/api/checkout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ priceId, tenantId: tenant.id, modules: selectedModules, billingCycle }),
-    })
-    const { url } = await res.json()
-    if (url) window.location.href = url
-    else setSaving(false)
+    try {
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priceId, tenantId: tenant.id, modules: selectedModules, billingCycle }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        console.error('Checkout error:', err)
+        alert(`Erreur: ${err.error || 'Impossible de créer la session de paiement. Vérifiez la configuration Stripe.'}`)
+        setSaving(false)
+        return
+      }
+      const { url } = await res.json()
+      if (url) window.location.href = url
+      else { alert('URL de paiement manquante'); setSaving(false) }
+    } catch (e) {
+      console.error('Checkout fetch error:', e)
+      alert('Erreur de connexion. Vérifiez les variables d\'environnement Stripe sur Vercel.')
+      setSaving(false)
+    }
   }
 
   if (!tenant) return (
@@ -379,9 +392,11 @@ function OnboardingContent() {
               </div>
               <div style={{ textAlign:'right' }}>
                 <div style={{ fontSize:'28px', fontWeight:'700', letterSpacing:'-0.02em' }}>
-                  €{billingCycle === 'monthly'
-                    ? selectedModules.reduce((s, slug) => s + (PLANS.find(p=>p.slug===slug)?.price_monthly||0), 0)
-                    : (selectedModules.reduce((s, slug) => s + (PLANS.find(p=>p.slug===slug)?.price_yearly||0), 0) / 12).toFixed(0)
+                  €{isAllSelected
+                    ? (billingCycle === 'monthly' ? 129 : Math.round(1238/12))
+                    : billingCycle === 'monthly'
+                      ? selectedModules.reduce((s, slug) => s + (PLANS.find(p=>p.slug===slug)?.price_monthly||0), 0)
+                      : Math.round(selectedModules.reduce((s, slug) => s + (PLANS.find(p=>p.slug===slug)?.price_yearly||0), 0) / 12)
                   }
                 </div>
                 <div style={{ fontSize:'11px', color:'rgba(255,255,255,0.6)' }}>par mois</div>
