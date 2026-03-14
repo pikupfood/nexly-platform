@@ -9,14 +9,14 @@ export async function POST(req: NextRequest) {
     process.env.SUPABASE_SERVICE_KEY!
   )
 
-  const { tenantId } = await req.json()
+  const { tenantId, returnUrl } = await req.json()
   const { data: tenant } = await supabase.from('tenants').select('stripe_customer_id').eq('id', tenantId).single()
-  if (!tenant?.stripe_customer_id) return NextResponse.json({ error: 'No customer' }, { status: 404 })
+  if (!tenant?.stripe_customer_id) return NextResponse.json({ error: 'No Stripe customer found. Complete subscription setup first.' }, { status: 404 })
 
   const baseUrl = process.env.NEXT_PUBLIC_URL || 'https://nexly-platform.vercel.app'
   const session = await stripe.billingPortal.sessions.create({
     customer: tenant.stripe_customer_id,
-    return_url: `${baseUrl}/dashboard/settings`,
+    return_url: returnUrl || `${baseUrl}/dashboard/settings`,
   })
 
   return NextResponse.json({ url: session.url })

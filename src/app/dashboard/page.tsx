@@ -80,6 +80,7 @@ export default function DashboardPage() {
           <span style={{ fontWeight:'600', fontSize:'15px' }}>Nexly Hub</span>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:'16px' }}>
+          <Link href="/dashboard/subscription" style={{ fontSize:'13px', color:'#6b6760' }}>💳 Abonnement</Link>
           <Link href="/dashboard/settings" style={{ fontSize:'13px', color:'#6b6760' }}>⚙️ Paramètres</Link>
           <button onClick={handleLogout} style={{ fontSize:'13px', color:'#6b6760', background:'none', border:'none', cursor:'pointer' }}>Déconnexion</button>
         </div>

@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
     process.env.SUPABASE_SERVICE_KEY!
   )
 
-  const { priceId, tenantId, modules, billingCycle } = await req.json()
+  const { priceId, tenantId, modules, billingCycle, mode } = await req.json()
 
   const { data: tenant } = await supabase.from('tenants').select('*').eq('id', tenantId).single()
   if (!tenant) return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
@@ -26,21 +26,26 @@ export async function POST(req: NextRequest) {
   }
 
   const baseUrl = process.env.NEXT_PUBLIC_URL || 'https://nexly-platform.vercel.app'
+  const isAddModule = mode === 'add_module'
 
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     mode: 'subscription',
     line_items: [{ price: priceId, quantity: 1 }],
     subscription_data: {
-      trial_period_days: 14,
+      trial_period_days: isAddModule ? undefined : 14,
       metadata: {
         tenant_id: tenantId,
         modules: modules.join(','),
         billing_cycle: billingCycle,
       },
     },
-    success_url: `${baseUrl}/dashboard?success=1`,
-    cancel_url: `${baseUrl}/onboarding?step=4`,
+    success_url: isAddModule
+      ? `${baseUrl}/dashboard/subscription?success=1`
+      : `${baseUrl}/dashboard?success=1`,
+    cancel_url: isAddModule
+      ? `${baseUrl}/dashboard/subscription`
+      : `${baseUrl}/onboarding?step=4`,
     allow_promotion_codes: true,
     billing_address_collection: 'auto',
   })

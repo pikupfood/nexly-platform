@@ -142,10 +142,18 @@ export default function SettingsPage() {
             </div>
 
             <div style={{ marginTop:'20px', paddingTop:'20px', borderTop:'1px solid #e8e6e1' }}>
-              <div style={{ fontSize:'13px', fontWeight:'600', marginBottom:'10px' }}>Abonnement Stripe</div>
-              <button className="btn btn-secondary" onClick={openPortal} disabled={portalLoading} style={{ fontSize:'13px' }}>
-                {portalLoading ? '...' : '💳 Gérer mon abonnement →'}
-              </button>
+              <div style={{ fontSize:'13px', fontWeight:'600', marginBottom:'10px' }}>Abonnement</div>
+              <div style={{ display:'flex', gap:'10px', flexWrap:'wrap' }}>
+                <a href="/dashboard/subscription" className="btn btn-primary" style={{ fontSize:'13px', textDecoration:'none' }}>
+                  💳 Gérer mon abonnement →
+                </a>
+                <button className="btn btn-secondary" onClick={openPortal} disabled={portalLoading} style={{ fontSize:'13px' }}>
+                  {portalLoading ? '...' : '🔗 Portail Stripe'}
+                </button>
+              </div>
+              <p style={{ fontSize:'12px', color:'#9a9690', marginTop:'8px' }}>
+                Changez de plan, ajoutez des modules, passez en annuel ou annulez votre abonnement.
+              </p>
             </div>
           </div>
         )}
