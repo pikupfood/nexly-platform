@@ -37,17 +37,31 @@ function OnboardingContent() {
   const [billing, setBilling] = useState({ legal_name:'', siret:'', vat_number:'', address:'', city:'', postal_code:'', country:'FR' })
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.replace('/auth/login'); return }
-      supabase.from('tenants').select('*').eq('user_id', session.user.id).single().then(({ data }) => {
-        if (data) {
+      let { data } = await supabase.from('tenants').select('*').eq('user_id', session.user.id).single()
+      
+      // Se il tenant non esiste, crealo automaticamente
+      if (!data) {
+        const { data: newTenant } = await supabase.from('tenants').insert([{
+          user_id: session.user.id,
+          email: session.user.email,
+          status: 'trial',
+          onboarding_step: 1,
+        }]).select().single()
+        data = newTenant
+      }
+
+      if (data) {
           setTenant(data)
           if (data.onboarding_step >= 4) router.replace('/dashboard')
           if (data.business_name) setBizInfo(p => ({ ...p, business_name: data.business_name || '', business_type: data.business_type || 'hotel', phone: data.phone || '', website: data.website || '' }))
           if (data.legal_name) setBilling(p => ({ ...p, legal_name: data.legal_name || '', siret: data.siret || '', vat_number: data.vat_number || '', address: data.address || '', city: data.city || '', postal_code: data.postal_code || '', country: data.country || 'FR' }))
           setStep(data.onboarding_step || 1)
-        }
-      })
+      } else {
+        // Caso estremo — redirect al login
+        router.replace('/auth/login')
+      }
     })
   }, [])
 
