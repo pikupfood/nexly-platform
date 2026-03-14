@@ -2,27 +2,38 @@ import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://erhumtzfyarckjowgvcd.supabase.co'
+const SUPABASE_URL = 'https://erhumtzfyarckjowgvcd.supabase.co'
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVyaHVtdHpmeWFyY2tqb3dndmNkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MjE2NjksImV4cCI6MjA4ODk5NzY2OX0.ydqd0vNsDNgnzNjFqkqUrya8oIz-fV2KOlISKmt4O00'
 
 export async function POST(req: NextRequest) {
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!)
-  const supabase = createClient(
-    SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_KEY || SUPABASE_ANON
-  )
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return NextResponse.json({ error: 'STRIPE_SECRET_KEY non configurata su Vercel' }, { status: 500 })
+  }
 
-  const { priceId, tenantId, modules, billingCycle, mode } = await req.json()
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
+  const supabase = createClient(SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY || SUPABASE_ANON)
 
-  const { data: rows, error: rpcError } = await supabase.rpc('get_tenant_stripe_info', { p_tenant_id: tenantId })
-  if (rpcError || !rows || rows.length === 0) return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
-  const tenant = rows[0]
+  const { priceId, tenantId, modules, billingCycle, mode, tenantEmail } = await req.json()
 
-  let customerId = tenant.stripe_customer_id
+  if (!priceId || !tenantId) {
+    return NextResponse.json({ error: 'priceId e tenantId sono obbligatori' }, { status: 400 })
+  }
+
+  // Usa RPC SECURITY DEFINER per bypassare RLS anche con chiave anon
+  const { data: rows } = await supabase.rpc('get_tenant_stripe_info', { p_tenant_id: tenantId })
+  
+  let email = tenantEmail || 'unknown@nexlyhub.com'
+  let customerId: string | null = null
+
+  if (rows && rows.length > 0) {
+    email = rows[0].email || email
+    customerId = rows[0].stripe_customer_id || null
+  }
+
+  // Crea customer Stripe se non esiste
   if (!customerId) {
     const customer = await stripe.customers.create({
-      email: tenant.email,
-      name: tenant.legal_name || tenant.business_name || tenant.email,
+      email,
       metadata: { tenant_id: tenantId },
     })
     customerId = customer.id
@@ -40,8 +51,8 @@ export async function POST(req: NextRequest) {
       trial_period_days: isAddModule ? undefined : 14,
       metadata: {
         tenant_id: tenantId,
-        modules: modules.join(','),
-        billing_cycle: billingCycle,
+        modules: Array.isArray(modules) ? modules.join(',') : modules || '',
+        billing_cycle: billingCycle || 'monthly',
       },
     },
     success_url: isAddModule

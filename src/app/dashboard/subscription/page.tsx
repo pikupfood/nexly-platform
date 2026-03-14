@@ -128,6 +128,7 @@ function SubscriptionContent() {
       body: JSON.stringify({
         priceId,
         tenantId: tenant.id,
+        tenantEmail: tenant.email,
         modules: pendingModules,
         billingCycle,
         mode: 'add_module',
@@ -151,7 +152,7 @@ function SubscriptionContent() {
     const res = await fetch('/api/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ priceId, tenantId: tenant.id, modules: pendingModules, billingCycle: newCycle }),
+      body: JSON.stringify({ priceId, tenantId: tenant.id, tenantEmail: tenant.email, modules: pendingModules, billingCycle: newCycle }),
     })
     const { url, error } = await res.json()
     if (url) window.location.href = url

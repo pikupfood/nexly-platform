@@ -143,7 +143,7 @@ function OnboardingContent() {
       const res = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priceId, tenantId: tenant.id, modules: selectedModules, billingCycle }),
+        body: JSON.stringify({ priceId, tenantId: tenant.id, tenantEmail: tenant.email, modules: selectedModules, billingCycle }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
