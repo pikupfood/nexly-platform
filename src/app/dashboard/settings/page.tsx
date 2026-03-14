@@ -158,7 +158,12 @@ export default function SettingsPage() {
               <div style={{ fontSize:'14px', color:'#6b6760', marginBottom:'4px' }}>Email</div>
               <div style={{ fontSize:'14px', color:'#1a1a1a', fontWeight:'500', marginBottom:'16px' }}>{tenant.email}</div>
               <div style={{ fontSize:'14px', color:'#6b6760', marginBottom:'4px' }}>Compte créé le</div>
-              <div style={{ fontSize:'14px', color:'#1a1a1a' }}>{new Date(tenant.created_at).toLocaleDateString('fr-FR')}</div>
+              <div style={{ fontSize:'14px', color:'#1a1a1a', marginBottom:'20px' }}>{new Date(tenant.created_at).toLocaleDateString('fr-FR')}</div>
+              <div style={{ fontSize:'14px', color:'#6b6760', marginBottom:'6px' }}>🔑 Votre Tenant ID</div>
+              <div style={{ background:'#f5f5f3', border:'1px solid #e0ddd8', borderRadius:'8px', padding:'10px 14px', fontSize:'12px', fontFamily:'monospace', color:'#1a1a1a', marginBottom:'6px', wordBreak:'break-all' }}>{tenant.id}</div>
+              <div style={{ fontSize:'12px', color:'#9a9690', marginBottom:'16px' }}>
+                Utilisez cet ID comme <code style={{ background:'#f0ede8', padding:'1px 5px', borderRadius:'3px' }}>NEXT_PUBLIC_TENANT_ID</code> dans les variables d'environnement de votre portail de réservations (nexly-booking).
+              </div>
             </div>
             <div className="card" style={{ borderRadius:'14px', padding:'24px', border:'1px solid #fecaca', background:'#fef2f2' }}>
               <h2 style={{ fontSize:'16px', fontWeight:'600', margin:'0 0 8px', color:'#dc2626' }}>Zone de danger</h2>

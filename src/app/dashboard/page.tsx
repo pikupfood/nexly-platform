@@ -168,24 +168,32 @@ export default function DashboardPage() {
 
         {/* Booking portal link */}
         <div className="card anim-4" style={{ borderRadius:'14px', background:'#1a1a1a', color:'white', padding:'24px' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'16px' }}>
-            <div>
-              <div style={{ fontWeight:'600', fontSize:'15px', marginBottom:'6px' }}>🌐 Portail de réservations clients</div>
-              <div style={{ fontSize:'13px', color:'rgba(255,255,255,0.6)', marginBottom:'8px' }}>
-                Partagez ce lien avec vos clients pour les réservations en ligne.
-              </div>
-              <div style={{ background:'rgba(255,255,255,0.1)', borderRadius:'6px', padding:'8px 12px', fontSize:'12px', fontFamily:'monospace', color:'rgba(255,255,255,0.8)' }}>
-                https://nexly-booking.vercel.app
-              </div>
+          <div style={{ marginBottom:'16px' }}>
+            <div style={{ fontWeight:'600', fontSize:'15px', marginBottom:'6px' }}>🌐 Portail de réservations clients</div>
+            <div style={{ fontSize:'13px', color:'rgba(255,255,255,0.6)' }}>
+              Partagez ce lien avec vos clients pour les réservations en ligne.
             </div>
-            <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
-              <a href="https://nexly-booking.vercel.app" target="_blank" rel="noopener" className="btn" style={{ background:'white', color:'#1a1a1a', fontSize:'13px', padding:'9px 18px' }}>
-                Voir le portail →
-              </a>
-              <button onClick={() => navigator.clipboard?.writeText('https://nexly-booking.vercel.app')} className="btn" style={{ background:'rgba(255,255,255,0.1)', color:'white', fontSize:'13px', padding:'9px 18px', border:'none' }}>
-                📋 Copier
-              </button>
+          </div>
+          <div style={{ background:'rgba(255,255,255,0.08)', borderRadius:'8px', padding:'10px 14px', fontSize:'12px', fontFamily:'monospace', color:'rgba(255,255,255,0.8)', marginBottom:'16px', wordBreak:'break-all' }}>
+            {tenant?.booking_url || `https://nexly-booking.vercel.app/${tenant?.slug || '...'}`}
+          </div>
+
+          {/* TENANT_ID per configurazione booking */}
+          <div style={{ background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:'8px', padding:'12px 14px', marginBottom:'16px' }}>
+            <div style={{ fontSize:'11px', color:'rgba(255,255,255,0.4)', marginBottom:'4px', fontWeight:'600', letterSpacing:'0.05em' }}>VOTRE TENANT ID (pour configurer votre portail)</div>
+            <div style={{ fontSize:'12px', fontFamily:'monospace', color:'#fbbf24', wordBreak:'break-all' }}>{tenant?.id}</div>
+            <div style={{ fontSize:'11px', color:'rgba(255,255,255,0.3)', marginTop:'6px' }}>
+              Ajoutez cette valeur comme <code style={{ background:'rgba(255,255,255,0.1)', padding:'1px 4px', borderRadius:'3px' }}>NEXT_PUBLIC_TENANT_ID</code> dans les env vars de votre déploiement nexly-booking sur Vercel.
             </div>
+          </div>
+
+          <div style={{ display:'flex', gap:'8px', flexWrap:'wrap' }}>
+            <a href={tenant?.booking_url || `https://nexly-booking.vercel.app/${tenant?.slug}`} target="_blank" rel="noopener" className="btn" style={{ background:'white', color:'#1a1a1a', fontSize:'13px', padding:'9px 18px' }}>
+              Voir le portail →
+            </a>
+            <button onClick={() => navigator.clipboard?.writeText(tenant?.booking_url || `https://nexly-booking.vercel.app/${tenant?.slug}` || '')} className="btn" style={{ background:'rgba(255,255,255,0.1)', color:'white', fontSize:'13px', padding:'9px 18px', border:'none' }}>
+              📋 Copier le lien
+            </button>
           </div>
         </div>
       </div>
