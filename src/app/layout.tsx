@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import SupportChat from '@/components/SupportChat'
 
 export const metadata: Metadata = {
   title: 'Nexly Hub — Plateforme de gestion hôtelière',
@@ -48,6 +49,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }
         `}</style>
         {children}
+        <SupportChat />
       </body>
     </html>
   )
