@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
+import { useStaffNav } from '@/lib/useStaffNav'
 import { autoGenerateInvoice } from '@/lib/autoInvoice'
 import PaymentModal from '@/components/PaymentModal'
 
@@ -18,6 +19,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function PrenotazioniPage() {
   const router = useRouter()
+  const { backHref } = useStaffNav()
   const [reservations, setReservations] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
@@ -102,16 +104,16 @@ export default function PrenotazioniPage() {
   })
 
   if (loading) return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ minHeight: '100vh', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ color: '#6b7280' }}>Caricamento...</div>
     </div>
   )
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: 'white', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ borderBottom: '1px solid #1f2030', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <Link href="/dashboard/hotel" style={{ color: '#6b7280', textDecoration: 'none', fontSize: '14px' }}>← Hotel</Link>
+          <Link href={backHref.includes("staff") ? "/staff/dashboard" : "/dashboard/hotel"} style={{ color: '#6b7280', textDecoration: 'none', fontSize: '14px' }}>← Hotel</Link>
           <span style={{ color: '#2a2a3a' }}>|</span>
           <h1 style={{ fontSize: '18px', fontWeight: '600', color: '#f1f1f1', margin: 0 }}>📋 Prenotazioni</h1>
         </div>
@@ -121,7 +123,7 @@ export default function PrenotazioniPage() {
         }}>+ Nuova</Link>
       </div>
 
-      <div style={{ padding: '32px' }}>
+      <div style={{ padding: '20px 24px' }}>
         {/* Filtri + ricerca */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap', alignItems: 'center' }}>
           <input

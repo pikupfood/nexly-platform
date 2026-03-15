@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getTenantId } from '@/lib/tenant'
 import Link from 'next/link'
+import { useStaffNav } from '@/lib/useStaffNav'
 
 const TVA_RATES = [
   { value: 20, label: '20% — Taux normal' },
@@ -22,6 +23,7 @@ interface Item {
 
 function NuovaFatturaForm() {
   const router = useRouter()
+  const { backHref } = useStaffNav()
   const searchParams = useSearchParams()
   const [loading, setLoading] = useState(false)
   const [pageLoading, setPageLoading] = useState(true)
@@ -201,13 +203,13 @@ function NuovaFatturaForm() {
     router.push(`/dashboard/fatture/${inv.id}/stampa`)
   }
 
-  const inputStyle = { width: '100%', padding: '9px 12px', background: '#0a0a0f', border: '1px solid #2a2a3a', borderRadius: '7px', color: '#f1f1f1', fontSize: '13px', outline: 'none', boxSizing: 'border-box' as const }
-  const labelStyle = { display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase' as const, letterSpacing: '0.5px' }
+  const inputStyle = { width: '100%', padding: '9px 12px', background: 'white', border: '1px solid #2a2a3a', borderRadius: '7px', color: '#f1f1f1', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }
+  const labelStyle = { display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }
 
-  if (pageLoading) return <div style={{ minHeight: '100vh', background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ color: '#6b7280' }}>Caricamento...</div></div>
+  if (pageLoading) return <div style={{ minHeight: '100vh', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ color: '#6b7280' }}>Caricamento...</div></div>
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: 'white', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ borderBottom: '1px solid #1f2030', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <Link href="/dashboard/fatture" style={{ color: '#6b7280', textDecoration: 'none', fontSize: '14px' }}>← Fatture</Link>
@@ -224,7 +226,7 @@ function NuovaFatturaForm() {
         </div>
       </div>
 
-      <div style={{ padding: '32px', maxWidth: '1000px', margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+      <div style={{ padding: '20px 24px', maxWidth: '1000px', margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
 
         {/* Col sinistra */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -323,7 +325,7 @@ function NuovaFatturaForm() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {items.map((item, idx) => (
-                <div key={idx} style={{ background: '#0a0a0f', borderRadius: '8px', padding: '12px', border: '1px solid #1f2030' }}>
+                <div key={idx} style={{ background: 'white', borderRadius: '8px', padding: '12px', border: '1px solid #1f2030' }}>
                   <div style={{ marginBottom: '8px' }}>
                     <input style={inputStyle} value={item.description} onChange={e => updateItem(idx, 'description', e.target.value)} placeholder="Description de la prestation..." />
                   </div>
@@ -371,7 +373,7 @@ function NuovaFatturaForm() {
 
 export default function NuovaFatturaPage() {
   return (
-    <Suspense fallback={<div style={{ minHeight: '100vh', background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ color: '#6b7280' }}>Caricamento...</div></div>}>
+    <Suspense fallback={<div style={{ minHeight:'100vh', background:'white', display:'flex', alignItems:'center', justifyContent:'center' }}><div style={{ color:'#94a3b8' }}>Caricamento...</div></div>}>
       <NuovaFatturaForm />
     </Suspense>
   )

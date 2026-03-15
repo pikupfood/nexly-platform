@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
+import { useStaffNav } from '@/lib/useStaffNav'
 
 const DAYS_IT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab']
 const MONTHS_IT = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
@@ -26,6 +27,7 @@ const STATUS_CFG: Record<string, { label: string; color: string }> = {
 
 export default function AgendaSpaPage() {
   const router = useRouter()
+  const { backHref } = useStaffNav()
   const [appointments, setAppointments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
@@ -80,10 +82,10 @@ export default function AgendaSpaPage() {
 
   const totalRevenue = filtered.filter(a => a.status === 'completed').reduce((s, a) => s + (a.price || 0), 0)
 
-  if (loading) return <div style={{ minHeight: '100vh', background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ color: '#6b7280' }}>Caricamento...</div></div>
+  if (loading) return <div style={{ minHeight: '100vh', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ color: '#6b7280' }}>Caricamento...</div></div>
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: 'white', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ borderBottom: '1px solid #1f2030', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <Link href="/dashboard/agenda" style={{ color: '#6b7280', textDecoration: 'none', fontSize: '14px' }}>← Agenda</Link>
@@ -93,7 +95,7 @@ export default function AgendaSpaPage() {
         <Link href="/dashboard/spa/appuntamenti" style={{ padding: '8px 16px', background: '#8b5cf6', color: 'white', borderRadius: '8px', textDecoration: 'none', fontSize: '14px', fontWeight: '500' }}>+ Nuovo</Link>
       </div>
 
-      <div style={{ padding: '24px 32px' }}>
+      <div style={{ padding: '20px 24px' }}>
         {/* Navigazione */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
           <button onClick={() => navigate(-1)} style={{ padding: '8px 14px', background: '#111118', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#9ca3af', cursor: 'pointer' }}>←</button>

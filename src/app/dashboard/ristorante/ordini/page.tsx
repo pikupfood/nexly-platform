@@ -1,390 +1,277 @@
 'use client'
-
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { getTenantId } from '@/lib/tenant'
 import Link from 'next/link'
+import { useStaffNav } from '@/lib/useStaffNav'
+import { useI18n } from '@/lib/i18n-context'
 import { autoGenerateInvoice } from '@/lib/autoInvoice'
 import PaymentModal from '@/components/PaymentModal'
 
-const OS: Record<string, { label: string; color: string }> = {
-  open:      { label: 'Aperto',     color: '#3b82f6' },
-  preparing: { label: 'In cucina',  color: '#f59e0b' },
-  ready:     { label: 'Pronto',     color: '#10b981' },
-  served:    { label: 'Servito',    color: '#6b7280' },
-  paid:      { label: 'Pagato',     color: '#4ade80' },
-  cancelled: { label: 'Cancellato', color: '#ef4444' },
-}
+const STATUS_FLOW: Record<string,string> = { open:'preparing', preparing:'ready', ready:'served', served:'paid' }
+const STATUS_COLOR: Record<string,string> = { open:'#3b82f6', preparing:'#f59e0b', ready:'#8b5cf6', served:'#10b981', paid:'#6b7280', cancelled:'#ef4444' }
+const STATUS_LABEL: Record<string,string> = { open:'Aperto', preparing:'In preparazione', ready:'Pronto', served:'Servito', paid:'Pagato', cancelled:'Cancellato' }
+const STATUS_ICON: Record<string,string> = { open:'📝', preparing:'👨‍🍳', ready:'🔔', served:'🍽️', paid:'✅', cancelled:'✕' }
 
 export default function OrdiniPage() {
   const router = useRouter()
+  const { backHref } = useStaffNav()
+  const { t } = useI18n()
   const [orders, setOrders] = useState<any[]>([])
   const [tables, setTables] = useState<any[]>([])
   const [menuItems, setMenuItems] = useState<any[]>([])
-  const [categories, setCategories] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeOrder, setActiveOrder] = useState<any>(null)
-  const [orderItems, setOrderItems] = useState<any[]>([])
   const [filter, setFilter] = useState('active')
-  const [showNewOrder, setShowNewOrder] = useState(false)
-  const [newOrderTable, setNewOrderTable] = useState('')
-  const [activeCat, setActiveCat] = useState('')
-  const [paymentModal, setPaymentModal] = useState<{ orderId: string } | null>(null)
+  const [showNew, setShowNew] = useState(false)
+  const [paymentModal, setPaymentModal] = useState<any>(null)
+  const [updating, setUpdating] = useState<string|null>(null)
+  const [newOrder, setNewOrder] = useState({ table_id: '', items: [] as {id:string;name:string;price:number;qty:number}[], notes: '' })
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) { router.replace('/'); return }
-      loadAll()
+      load()
     })
   }, [])
 
-  const loadAll = async () => {
-    const [ordersRes, tablesRes, itemsRes, catsRes] = await Promise.all([
-      supabase.from('restaurant_orders').select('*, table:restaurant_tables(table_number)').order('created_at', { ascending: false }),
+  const load = async () => {
+    const [ordRes, tabRes, menuRes] = await Promise.all([
+      supabase.from('restaurant_orders').select('*, table:restaurant_tables(table_number,location), items:restaurant_order_items(*, menu_item:menu_items(name,price))').order('created_at', { ascending: false }),
       supabase.from('restaurant_tables').select('*').order('table_number'),
-      supabase.from('menu_items').select('*, category:menu_categories(name)').eq('is_available', true).order('sort_order'),
-      supabase.from('menu_categories').select('*').eq('is_active', true).order('sort_order'),
+      supabase.from('menu_items').select('*, category:menu_categories(name)').eq('is_active', true).order('sort_order'),
     ])
-    setOrders(ordersRes.data || [])
-    setTables(tablesRes.data || [])
-    setMenuItems(itemsRes.data || [])
-    setCategories(catsRes.data || [])
-    if (catsRes.data?.length) setActiveCat(catsRes.data[0].id)
+    setOrders(ordRes.data || [])
+    setTables(tabRes.data || [])
+    setMenuItems(menuRes.data || [])
     setLoading(false)
   }
 
-  const loadOrderItems = async (orderId: string) => {
-    const { data } = await supabase.from('order_items').select('*').eq('order_id', orderId).order('created_at')
-    setOrderItems(data || [])
+  const nextStatus = async (o: any) => {
+    const next = STATUS_FLOW[o.status]
+    if (!next) return
+    if (next === 'paid') { setPaymentModal(o); return }
+    setUpdating(o.id)
+    await supabase.from('restaurant_orders').update({ status: next }).eq('id', o.id)
+    setOrders(prev => prev.map(x => x.id === o.id ? { ...x, status: next } : x))
+    // Se servito → aggiorna status tavolo a libero
+    if (next === 'served') {
+      await supabase.from('restaurant_tables').update({ status: 'free' }).eq('id', o.table_id)
+    }
+    setUpdating(null)
   }
 
-  const openOrder = async (order: any) => {
-    setActiveOrder(order)
-    await loadOrderItems(order.id)
+  const handlePayment = async (payment: any) => {
+    if (!paymentModal) return
+    const o = paymentModal
+    setPaymentModal(null)
+    setUpdating(o.id)
+    await supabase.from('restaurant_orders').update({ status: 'paid', payment_method: payment.method }).eq('id', o.id)
+    await supabase.from('restaurant_tables').update({ status: 'free' }).eq('id', o.table_id)
+    setOrders(prev => prev.map(x => x.id === o.id ? { ...x, status: 'paid' } : x))
+    await autoGenerateInvoice({
+      source: 'ristorante', sourceId: o.id,
+      clientFirstName: `Tavolo`, clientLastName: o.table?.table_number || '',
+      items: [{ description: `Ordine tavolo ${o.table?.table_number} — ${new Date().toLocaleDateString('it-IT')}`, quantity: 1, unit_price: Number(o.total || 0), tax_rate: 10 }],
+      taxRate: 10, paymentMethod: payment.method, isComplimentary: payment.isComplimentary, router,
+    })
+    setUpdating(null)
   }
 
   const createOrder = async () => {
-    if (!newOrderTable) return
-    const tenantId = await getTenantId()
-    const { data } = await supabase.from('restaurant_orders').insert([{ table_id: newOrderTable, tenant_id: tenantId }]).select('*, table:restaurant_tables(table_number)').single()
-    if (data) {
-      await supabase.from('restaurant_tables').update({ status: 'occupied' }).eq('id', newOrderTable)
-      setOrders(prev => [data, ...prev])
-      setShowNewOrder(false)
-      setNewOrderTable('')
-      setActiveOrder(data)
-      setOrderItems([])
-    }
+    if (!newOrder.table_id || newOrder.items.length === 0) return
+    const total = newOrder.items.reduce((s,i) => s + i.price * i.qty, 0)
+    const { data: ord, error } = await supabase.from('restaurant_orders').insert([{
+      table_id: newOrder.table_id, status: 'open', total, notes: newOrder.notes
+    }]).select().single()
+    if (error || !ord) { alert('Errore: ' + error?.message); return }
+    // Inserisci items
+    const itemRows = newOrder.items.map(i => ({ order_id: ord.id, menu_item_id: i.id, quantity: i.qty, unit_price: i.price, subtotal: i.price * i.qty }))
+    await supabase.from('restaurant_order_items').insert(itemRows)
+    // Segna tavolo come occupato
+    await supabase.from('restaurant_tables').update({ status: 'occupied' }).eq('id', newOrder.table_id)
+    setShowNew(false)
+    setNewOrder({ table_id: '', items: [], notes: '' })
+    await load()
   }
 
-  const addItem = async (item: any) => {
-    if (!activeOrder) return
-    const existing = orderItems.find(oi => oi.menu_item_id === item.id)
-    if (existing) {
-      await supabase.from('order_items').update({ quantity: existing.quantity + 1 }).eq('id', existing.id)
-      setOrderItems(prev => prev.map(oi => oi.id === existing.id ? { ...oi, quantity: oi.quantity + 1 } : oi))
-    } else {
-      const { data } = await supabase.from('order_items').insert([{
-        order_id: activeOrder.id, menu_item_id: item.id, name: item.name, price: item.price, quantity: 1, tenant_id: await getTenantId()
-      }]).select().single()
-      if (data) setOrderItems(prev => [...prev, data])
-    }
-    // Aggiorna totale
-    const newTotal = [...orderItems, { price: item.price, quantity: 1 }]
-      .reduce((sum, oi) => sum + (oi.price * (oi.id === existing?.id ? oi.quantity + 1 : oi.quantity)), 0)
-    updateTotal(newTotal)
-  }
-
-  const removeItem = async (itemId: string) => {
-    const item = orderItems.find(oi => oi.id === itemId)
-    if (!item) return
-    if (item.quantity > 1) {
-      await supabase.from('order_items').update({ quantity: item.quantity - 1 }).eq('id', itemId)
-      setOrderItems(prev => prev.map(oi => oi.id === itemId ? { ...oi, quantity: oi.quantity - 1 } : oi))
-    } else {
-      await supabase.from('order_items').delete().eq('id', itemId)
-      setOrderItems(prev => prev.filter(oi => oi.id !== itemId))
-    }
-    const updated = orderItems.map(oi => oi.id === itemId ? { ...oi, quantity: Math.max(0, oi.quantity - 1) } : oi).filter(oi => oi.quantity > 0)
-    const newTotal = updated.reduce((sum, oi) => sum + oi.price * oi.quantity, 0)
-    updateTotal(newTotal)
-  }
-
-  const updateTotal = async (total: number) => {
-    if (!activeOrder) return
-    await supabase.from('restaurant_orders').update({ total, updated_at: new Date().toISOString() }).eq('id', activeOrder.id)
-    setOrders(prev => prev.map(o => o.id === activeOrder.id ? { ...o, total } : o))
-    setActiveOrder((prev: any) => prev ? { ...prev, total } : prev)
-  }
-
-  const updateOrderStatus = async (orderId: string, status: string) => {
-    // Per il pagamento, mostra prima il modal
-    if (status === 'paid') {
-      setPaymentModal({ orderId })
-      return
-    }
-    await supabase.from('restaurant_orders').update({ status }).eq('id', orderId)
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o))
-    if (activeOrder?.id === orderId) setActiveOrder((prev: any) => ({ ...prev, status }))
-  }
-
-  const handlePaymentConfirm = async (payment: { method: string; note: string; isComplimentary: boolean }) => {
-    if (!paymentModal) return
-    const orderId = paymentModal.orderId
-    const order = orders.find(o => o.id === orderId)
-    setPaymentModal(null)
-
-    // Aggiorna ordine
-    await supabase.from('restaurant_orders').update({
-      status: 'paid',
-      payment_method: payment.method,
-      payment_note: payment.note || null,
-      is_complimentary: payment.isComplimentary,
-    }).eq('id', orderId)
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'paid' } : o))
-    if (activeOrder?.id === orderId) setActiveOrder((prev: any) => ({ ...prev, status: 'paid' }))
-    if (order?.table_id) await supabase.from('restaurant_tables').update({ status: 'free' }).eq('id', order.table_id)
-
-    // Genera fattura automatica
-    const items = orderItems.map(oi => ({
-      description: `${oi.name} × ${oi.quantity}`,
-      quantity: oi.quantity,
-      unit_price: Number(oi.price),
-      tax_rate: 10,
-    }))
-    await autoGenerateInvoice({
-      source: 'ristorante',
-      sourceId: orderId,
-      clientFirstName: 'Cliente',
-      clientLastName: `Tavolo ${order?.table?.table_number || ''}`,
-      items,
-      taxRate: 10,
-      paymentMethod: payment.method,
-      paymentNote: payment.note,
-      isComplimentary: payment.isComplimentary,
-      router,
+  const addItem = (item: any) => {
+    setNewOrder(prev => {
+      const existing = prev.items.find(i => i.id === item.id)
+      if (existing) return { ...prev, items: prev.items.map(i => i.id === item.id ? {...i, qty: i.qty+1} : i) }
+      return { ...prev, items: [...prev.items, { id: item.id, name: item.name, price: Number(item.price), qty: 1 }] }
     })
   }
 
-  const orderTotal = orderItems.reduce((sum, oi) => sum + oi.price * oi.quantity, 0)
-  const filtered = orders.filter(o => filter === 'all' ? true : filter === 'active' ? ['open','preparing','ready'].includes(o.status) : o.status === filter)
-  const catItems = menuItems.filter(i => i.category_id === activeCat)
+  const removeItem = (id: string) => setNewOrder(prev => ({ ...prev, items: prev.items.filter(i => i.id !== id) }))
 
-  if (loading) return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ color: '#6b7280' }}>Caricamento...</div>
-    </div>
-  )
+  const filtered = filter === 'active'
+    ? orders.filter(o => ['open','preparing','ready','served'].includes(o.status))
+    : filter === 'all' ? orders : orders.filter(o => o.status === filter)
+
+  // Raggruppa per stato (Kanban)
+  const byStatus = ['open','preparing','ready','served'].reduce((acc, s) => {
+    acc[s] = filtered.filter(o => o.status === s)
+    return acc
+  }, {} as Record<string,any[]>)
+
+  const totalActive = ['open','preparing','ready','served'].reduce((s, st) => s + (byStatus[st]?.length||0), 0)
+
+  if (loading) return <div style={{ minHeight:'100vh', background:'white', display:'flex', alignItems:'center', justifyContent:'center' }}><div style={{ color:'#94a3b8' }}>Caricamento...</div></div>
+
+  const IS: any = { padding:'8px 10px', background:'#f1f5f9', border:'1px solid #e2e8f0', borderRadius:'7px', color:'#0f172a', fontSize:'13px', width:'100%', boxSizing:'border-box', outline:'none' }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', fontFamily: 'system-ui, sans-serif', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ borderBottom: '1px solid #1f2030', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <Link href="/dashboard/ristorante" style={{ color: '#6b7280', textDecoration: 'none', fontSize: '14px' }}>← Ristorante</Link>
-          <span style={{ color: '#2a2a3a' }}>|</span>
-          <h1 style={{ fontSize: '18px', fontWeight: '600', color: '#f1f1f1', margin: 0 }}>📋 Ordini</h1>
+    <div style={{ minHeight:'100vh', background:'white', fontFamily:'system-ui,sans-serif' }}>
+      <div style={{ borderBottom:'1px solid #e2e8f0', padding:'14px 32px', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, background:'white', zIndex:10 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'14px' }}>
+          <Link href="/dashboard/ristorante" style={{ color:'#94a3b8', textDecoration:'none', fontSize:'13px' }}>← Restaurant</Link>
+          <span style={{ color:'#2a2a3a' }}>|</span>
+          <h1 style={{ fontSize:'17px', fontWeight:'600', color:'#0f172a', margin:0 }}>📋 Ordini</h1>
+          {totalActive > 0 && <span style={{ background:'#ef444420', color:'#f87171', padding:'2px 10px', borderRadius:'12px', fontSize:'12px' }}>{totalActive} attivi</span>}
         </div>
-        <button onClick={() => setShowNewOrder(true)} style={{
-          padding: '8px 16px', background: '#3b82f6', color: 'white', border: 'none',
-          borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '500'
-        }}>+ Nuovo Ordine</button>
+        <div style={{ display:'flex', gap:'8px' }}>
+          {['active','paid','all'].map(f => (
+            <button key={f} onClick={() => setFilter(f)} style={{ padding:'7px 12px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'12px', background:filter===f?'#10b981':'#111118', color:filter===f?'white':'#9ca3af', outline:`1px solid ${filter===f?'#10b981':'#1f2030'}` }}>
+              {f==='active'?'Attivi':f==='paid'?'Pagati':'Tutti'}
+            </button>
+          ))}
+          <button onClick={() => setShowNew(v=>!v)} style={{ padding:'8px 16px', background:showNew?'#374151':'#10b981', color:'white', border:'none', borderRadius:'8px', cursor:'pointer', fontSize:'13px', fontWeight:'500' }}>
+            {showNew ? '✕ Chiudi' : '+ Nuovo ordine'}
+          </button>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-
-        {/* Colonna sinistra: lista ordini */}
-        <div style={{ width: '280px', borderRight: '1px solid #1f2030', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '16px', borderBottom: '1px solid #1f2030' }}>
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              {[['active','Attivi'],['all','Tutti'],['paid','Pagati']].map(([k,l]) => (
-                <button key={k} onClick={() => setFilter(k)} style={{
-                  padding: '5px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '12px',
-                  background: filter === k ? '#3b82f6' : '#1f2030', color: filter === k ? 'white' : '#9ca3af',
-                }}>{l}</button>
-              ))}
+      <div style={{ padding:'20px 24px' }}>
+        {/* Form nuovo ordine */}
+        {showNew && (
+          <div style={{ background:'white', border:'1px solid #e2e8f0', borderRadius:'14px', padding:'20px 24px', marginBottom:'20px' }}>
+            <h3 style={{ color:'#0f172a', fontSize:'14px', fontWeight:'600', margin:'0 0 16px' }}>Nuovo ordine</h3>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'16px' }}>
+              <div>
+                <div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'6px' }}>Tavolo *</div>
+                <select style={IS} value={newOrder.table_id} onChange={e => setNewOrder(p => ({...p, table_id: e.target.value}))}>
+                  <option value="">Seleziona tavolo...</option>
+                  {tables.map(t => <option key={t.id} value={t.id}>Tavolo {t.table_number} ({t.location}) — {t.status==='free'?'🟢 Libero':'🔴 Occupato'}</option>)}
+                </select>
+                <div style={{ fontSize:'11px', color:'#94a3b8', marginTop:'12px', marginBottom:'6px' }}>Note</div>
+                <input style={IS} value={newOrder.notes} onChange={e => setNewOrder(p => ({...p, notes: e.target.value}))} placeholder="Note per la cucina..." />
+                {newOrder.items.length > 0 && (
+                  <div style={{ marginTop:'12px', background:'white', border:'1px solid #e2e8f0', borderRadius:'8px', padding:'12px' }}>
+                    <div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'8px' }}>ORDINE</div>
+                    {newOrder.items.map(item => (
+                      <div key={item.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'4px 0' }}>
+                        <span style={{ fontSize:'13px', color:'#d1d5db' }}>{item.qty}x {item.name}</span>
+                        <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+                          <span style={{ fontSize:'13px', color:'#f59e0b' }}>€{(item.price*item.qty).toFixed(0)}</span>
+                          <button onClick={() => removeItem(item.id)} style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', fontSize:'12px' }}>✕</button>
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{ borderTop:'1px solid #1f2030', marginTop:'8px', paddingTop:'8px', display:'flex', justifyContent:'space-between' }}>
+                      <span style={{ fontSize:'13px', fontWeight:'600', color:'#0f172a' }}>Totale</span>
+                      <span style={{ fontSize:'15px', fontWeight:'700', color:'#10b981' }}>€{newOrder.items.reduce((s,i)=>s+i.price*i.qty,0).toFixed(2)}</span>
+                    </div>
+                    <button onClick={createOrder} disabled={!newOrder.table_id} style={{ width:'100%', marginTop:'12px', padding:'10px', background:newOrder.table_id?'#10b981':'#374151', color:'white', border:'none', borderRadius:'8px', cursor:'pointer', fontSize:'13px', fontWeight:'600' }}>
+                      ✓ Conferma ordine
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div>
+                <div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'6px' }}>Aggiungi piatti</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:'4px', maxHeight:'360px', overflowY:'auto' }}>
+                  {menuItems.map(item => (
+                    <div key={item.id} onClick={() => addItem(item)}
+                      style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 12px', background:'#f1f5f9', border:'1px solid #e2e8f0', borderRadius:'8px', cursor:'pointer', transition:'border-color 0.1s' }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor='#10b981'}
+                      onMouseLeave={e => e.currentTarget.style.borderColor='#2a2a3a'}>
+                      <div>
+                        <div style={{ fontSize:'13px', color:'#0f172a' }}>{item.name}</div>
+                        <div style={{ fontSize:'10px', color:'#94a3b8' }}>{item.category?.name}</div>
+                      </div>
+                      <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+                        <span style={{ fontSize:'13px', fontWeight:'600', color:'#f59e0b' }}>€{Number(item.price).toFixed(0)}</span>
+                        <span style={{ fontSize:'16px', color:'#10b981' }}>+</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
-            {filtered.length === 0 ? (
-              <div style={{ textAlign: 'center', color: '#6b7280', padding: '40px 16px', fontSize: '13px' }}>Nessun ordine</div>
-            ) : filtered.map(order => {
-              const sc = OS[order.status]
+        )}
+
+        {/* Kanban view (solo per ordini attivi) */}
+        {filter === 'active' && (
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'12px' }}>
+            {Object.entries(byStatus).map(([status, statusOrders]) => {
+              const c = STATUS_COLOR[status]
               return (
-                <div key={order.id} onClick={() => openOrder(order)} style={{
-                  background: activeOrder?.id === order.id ? '#1a2030' : '#111118',
-                  border: `1px solid ${activeOrder?.id === order.id ? '#3b82f6' : '#1f2030'}`,
-                  borderRadius: '10px', padding: '14px', marginBottom: '8px', cursor: 'pointer',
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                    <span style={{ fontWeight: '600', color: '#f1f1f1', fontSize: '15px' }}>
-                      Tavolo {order.table?.table_number || '—'}
-                    </span>
-                    <span style={{ background: sc.color + '20', color: sc.color, padding: '2px 8px', borderRadius: '12px', fontSize: '11px' }}>
-                      {sc.label}
-                    </span>
+                <div key={status} style={{ background:'white', border:`1px solid ${c}30`, borderRadius:'12px', overflow:'hidden' }}>
+                  <div style={{ padding:'10px 14px', background:`${c}15`, borderBottom:`1px solid ${c}30`, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <span style={{ fontSize:'12px', fontWeight:'700', color:c }}>{STATUS_ICON[status]} {STATUS_LABEL[status]}</span>
+                    <span style={{ fontSize:'11px', background:`${c}20`, color:c, padding:'1px 8px', borderRadius:'10px' }}>{statusOrders.length}</span>
                   </div>
-                  <div style={{ fontSize: '12px', color: '#6b7280', fontFamily: 'monospace' }}>{order.order_number}</div>
-                  <div style={{ fontSize: '14px', color: '#f1f1f1', fontWeight: '500', marginTop: '6px' }}>
-                    €{Number(order.total || 0).toFixed(2)}
+                  <div style={{ padding:'8px', display:'flex', flexDirection:'column', gap:'6px', minHeight:'80px' }}>
+                    {statusOrders.length === 0 && <div style={{ fontSize:'11px', color:'#94a3b8', textAlign:'center', padding:'12px' }}>—</div>}
+                    {statusOrders.map(o => (
+                      <div key={o.id} style={{ background:'white', border:`1px solid ${c}30`, borderRadius:'8px', padding:'10px 12px' }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'4px' }}>
+                          <span style={{ fontSize:'13px', fontWeight:'700', color:'#0f172a' }}>Tav. {o.table?.table_number}</span>
+                          <span style={{ fontSize:'12px', fontWeight:'600', color:'#f59e0b' }}>€{Number(o.total||0).toFixed(0)}</span>
+                        </div>
+                        <div style={{ fontSize:'10px', color:'#94a3b8', marginBottom:'8px' }}>
+                          {new Date(o.created_at).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}
+                          {o.notes && ` · ${o.notes}`}
+                        </div>
+                        {o.items?.slice(0,3).map((item: any,i: number) => (
+                          <div key={i} style={{ fontSize:'11px', color:'#64748b' }}>
+                            {item.quantity}x {item.menu_item?.name}
+                          </div>
+                        ))}
+                        {STATUS_FLOW[status] && (
+                          <button onClick={() => nextStatus(o)} disabled={updating===o.id}
+                            style={{ width:'100%', marginTop:'8px', padding:'5px', background:`${c}20`, color:c, border:`1px solid ${c}40`, borderRadius:'6px', cursor:'pointer', fontSize:'11px', fontWeight:'600' }}>
+                            {updating===o.id ? '...' : `→ ${STATUS_LABEL[STATUS_FLOW[status]]}`}
+                          </button>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )
             })}
           </div>
-        </div>
-
-        {/* Colonna centrale: ordine attivo */}
-        {activeOrder ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid #1f2030' }}>
-            <div style={{ padding: '16px 24px', borderBottom: '1px solid #1f2030', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <span style={{ fontWeight: '600', color: '#f1f1f1' }}>Tavolo {activeOrder.table?.table_number}</span>
-                <span style={{ fontSize: '12px', color: '#6b7280', marginLeft: '12px', fontFamily: 'monospace' }}>{activeOrder.order_number}</span>
-              </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {activeOrder.status === 'open' && (
-                  <button onClick={() => updateOrderStatus(activeOrder.id, 'preparing')} style={{
-                    padding: '6px 14px', background: '#f59e0b20', color: '#f59e0b', border: '1px solid #f59e0b40', borderRadius: '6px', cursor: 'pointer', fontSize: '12px'
-                  }}>👨‍🍳 Invia cucina</button>
-                )}
-                {activeOrder.status === 'preparing' && (
-                  <button onClick={() => updateOrderStatus(activeOrder.id, 'ready')} style={{
-                    padding: '6px 14px', background: '#10b98120', color: '#10b981', border: '1px solid #10b98140', borderRadius: '6px', cursor: 'pointer', fontSize: '12px'
-                  }}>✅ Pronto</button>
-                )}
-                {activeOrder.status === 'ready' && (
-                  <button onClick={() => updateOrderStatus(activeOrder.id, 'served')} style={{
-                    padding: '6px 14px', background: '#6b728020', color: '#9ca3af', border: '1px solid #6b728040', borderRadius: '6px', cursor: 'pointer', fontSize: '12px'
-                  }}>🍽️ Servito</button>
-                )}
-                {['served','open','preparing','ready'].includes(activeOrder.status) && (
-                  <button onClick={() => updateOrderStatus(activeOrder.id, 'paid')} style={{
-                    padding: '6px 14px', background: '#4ade8020', color: '#4ade80', border: '1px solid #4ade8040', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600'
-                  }}>💳 Paga €{orderTotal.toFixed(2)}</button>
-                )}
-                <Link href={`/dashboard/fatture/nuova?source=ristorante&id=${activeOrder.id}`} style={{ padding: '6px 14px', background: '#ef444415', color: '#ef4444', border: '1px solid #ef444430', borderRadius: '6px', fontSize: '12px', fontWeight: '500', textDecoration: 'none' }}>🧾 Fattura</Link>
-              </div>
-            </div>
-
-            {/* Items ordine */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
-              {orderItems.length === 0 ? (
-                <div style={{ textAlign: 'center', color: '#6b7280', padding: '40px', fontSize: '14px' }}>
-                  Ordine vuoto — aggiungi piatti dal menu →
-                </div>
-              ) : orderItems.map(oi => (
-                <div key={oi.id} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '12px 0', borderBottom: '1px solid #1f2030'
-                }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '14px', color: '#f1f1f1' }}>{oi.name}</div>
-                    <div style={{ fontSize: '12px', color: '#6b7280' }}>€{Number(oi.price).toFixed(2)} × {oi.quantity}</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <span style={{ fontSize: '14px', fontWeight: '600', color: '#f1f1f1', minWidth: '60px', textAlign: 'right' }}>
-                      €{(oi.price * oi.quantity).toFixed(2)}
-                    </span>
-                    {['open','preparing'].includes(activeOrder.status) && (
-                      <button onClick={() => removeItem(oi.id)} style={{
-                        width: '24px', height: '24px', background: '#ef444420', color: '#ef4444',
-                        border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', lineHeight: '1'
-                      }}>−</button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Totale */}
-            <div style={{ padding: '16px 24px', borderTop: '1px solid #1f2030', background: '#0d0d14' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#9ca3af', fontSize: '14px' }}>Totale</span>
-                <span style={{ fontSize: '28px', fontWeight: '700', color: '#f1f1f1' }}>€{orderTotal.toFixed(2)}</span>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: '14px', borderRight: '1px solid #1f2030' }}>
-            Seleziona un ordine o creane uno nuovo
-          </div>
         )}
 
-        {/* Colonna destra: menu */}
-        {activeOrder && ['open', 'preparing'].includes(activeOrder.status) && (
-          <div style={{ width: '320px', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '16px', borderBottom: '1px solid #1f2030' }}>
-              <div style={{ fontSize: '13px', fontWeight: '600', color: '#9ca3af', marginBottom: '10px' }}>MENU</div>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {categories.map(c => (
-                  <button key={c.id} onClick={() => setActiveCat(c.id)} style={{
-                    padding: '4px 10px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '12px',
-                    background: activeCat === c.id ? '#3b82f6' : '#1f2030',
-                    color: activeCat === c.id ? 'white' : '#9ca3af',
-                  }}>{c.name}</button>
-                ))}
-              </div>
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
-              {catItems.map(item => (
-                <div key={item.id} onClick={() => addItem(item)} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '12px', background: '#111118', border: '1px solid #1f2030',
-                  borderRadius: '8px', marginBottom: '8px', cursor: 'pointer',
-                }}
-                  onMouseEnter={e => (e.currentTarget.style.borderColor = '#3b82f6')}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor = '#1f2030')}
-                >
+        {/* Lista per filtri non-kanban */}
+        {filter !== 'active' && (
+          <div style={{ display:'flex', flexDirection:'column', gap:'8px' }}>
+            {filtered.map(o => {
+              const c = STATUS_COLOR[o.status]
+              return (
+                <div key={o.id} style={{ background:'white', border:`1px solid ${c}30`, borderRadius:'12px', padding:'14px 18px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div>
-                    <div style={{ fontSize: '13px', color: '#f1f1f1', fontWeight: '500' }}>{item.name}</div>
-                    {item.is_vegetarian && <span style={{ fontSize: '10px', color: '#10b981' }}>🌿 </span>}
+                    <div style={{ fontSize:'14px', fontWeight:'600', color:'#0f172a' }}>Tavolo {o.table?.table_number}</div>
+                    <div style={{ fontSize:'12px', color:'#94a3b8' }}>{new Date(o.created_at).toLocaleString('it-IT')}</div>
                   </div>
-                  <div style={{ fontSize: '14px', fontWeight: '600', color: '#3b82f6' }}>€{Number(item.price).toFixed(2)}</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+                    <span style={{ background:`${c}20`, color:c, padding:'3px 10px', borderRadius:'12px', fontSize:'12px' }}>{STATUS_ICON[o.status]} {STATUS_LABEL[o.status]}</span>
+                    <span style={{ fontSize:'16px', fontWeight:'700', color:'#f59e0b' }}>€{Number(o.total||0).toFixed(2)}</span>
+                  </div>
                 </div>
-              ))}
-            </div>
+              )
+            })}
+            {filtered.length === 0 && <div style={{ textAlign:'center', color:'#94a3b8', padding:'40px', fontSize:'13px' }}>Nessun ordine</div>}
           </div>
         )}
       </div>
 
-      {/* Modal nuovo ordine */}
-      {showNewOrder && (
-        <div style={{ position: 'fixed', inset: 0, background: '#000000aa', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ background: '#111118', border: '1px solid #2a2a3a', borderRadius: '16px', padding: '32px', width: '360px' }}>
-            <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f1f1', marginTop: 0, marginBottom: '20px' }}>Nuovo Ordine</h2>
-            <label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Seleziona tavolo</label>
-            <select value={newOrderTable} onChange={e => setNewOrderTable(e.target.value)} style={{
-              width: '100%', padding: '10px 14px', background: '#0a0a0f', border: '1px solid #2a2a3a',
-              borderRadius: '8px', color: '#f1f1f1', fontSize: '14px', marginBottom: '20px'
-            }}>
-              <option value="">— Scegli tavolo —</option>
-              {tables.map(t => (
-                <option key={t.id} value={t.id}>
-                  Tavolo {t.table_number} ({t.location}) · {t.status === 'free' ? 'Libero' : t.status}
-                </option>
-              ))}
-            </select>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <button onClick={() => setShowNewOrder(false)} style={{
-                flex: 1, padding: '10px', background: '#1f2030', color: '#9ca3af',
-                border: '1px solid #2a2a3a', borderRadius: '8px', cursor: 'pointer'
-              }}>Annulla</button>
-              <button onClick={createOrder} disabled={!newOrderTable} style={{
-                flex: 1, padding: '10px', background: newOrderTable ? '#3b82f6' : '#1f2030',
-                color: 'white', border: 'none', borderRadius: '8px', cursor: newOrderTable ? 'pointer' : 'not-allowed', fontWeight: '500'
-              }}>Crea Ordine</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal pagamento */}
       {paymentModal && (
         <PaymentModal
-          title={`Pagamento Tavolo ${orders.find(o => o.id === paymentModal.orderId)?.table?.table_number || ''}`}
-          amount={orderTotal}
-          onConfirm={handlePaymentConfirm}
+          title={`Chiudi conto — Tavolo ${paymentModal.table?.table_number}`}
+          amount={Number(paymentModal.total||0)}
+          onConfirm={handlePayment}
           onCancel={() => setPaymentModal(null)}
         />
       )}

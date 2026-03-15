@@ -5,11 +5,11 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { getTenantId } from '@/lib/tenant'
 
-const IS: any = { width:'100%', padding:'9px 12px', background:'#0a0a0f', border:'1px solid #2a2a3a', borderRadius:'8px', color:'#f1f1f1', fontSize:'13px', outline:'none', boxSizing:'border-box' }
-const LS: any = { display:'block', fontSize:'12px', color:'#9ca3af', marginBottom:'5px' }
+const IS: any = { width:'100%', padding:'9px 12px', background:'white', border:'1px solid #e2e8f0', borderRadius:'8px', color:'#0f172a', fontSize:'13px', outline:'none', boxSizing:'border-box' }
+const LS: any = { display:'block', fontSize:'12px', color:'#64748b', marginBottom:'5px' }
 const BTN = (c='#3b82f6'): any => ({ padding:'7px 14px', background:c, border:'none', borderRadius:'7px', color:'white', fontSize:'12px', fontWeight:500, cursor:'pointer' })
-const CARD: any = { background:'#111118', border:'1px solid #1f2030', borderRadius:'12px', padding:'20px' }
-const ROW: any = { display:'flex', alignItems:'center', gap:'10px', padding:'12px 14px', background:'#0a0a0f', borderRadius:'8px', border:'1px solid #1f2030' }
+const CARD: any = { background:'white', border:'1px solid #e2e8f0', borderRadius:'12px', padding:'20px' }
+const ROW: any = { display:'flex', alignItems:'center', gap:'10px', padding:'12px 14px', background:'white', borderRadius:'8px', border:'1px solid #e2e8f0' }
 
 const DAYS = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam']
 const SURFACES = ['synthetic','glass','cement','other']
@@ -67,10 +67,12 @@ export default function CampiPage() {
     const tenantId = await getTenantId()
     const payload = { ...form, price_per_hour:parseFloat(form.price_per_hour)||0, slot_duration:parseInt(form.slot_duration)||90 }
     if (editItem) {
-      await supabase.from('padel_courts').update(payload).eq('id', editItem.id)
+      const { error } = await supabase.rpc('update_padel_court', { p_id:editItem.id, p_name:payload.name, p_description:payload.description||'', p_price_per_hour:payload.price_per_hour||0, p_type:payload.type||'indoor', p_surface:payload.surface||'synthetic', p_open_time:payload.open_time||'08:00', p_close_time:payload.close_time||'22:00', p_slot_duration:payload.slot_duration||90, p_days_open:payload.days_open||[] })
+      if (error) { alert('Erreur: '+error.message); setSaving(false); return }
       setCourts(p=>p.map(x=>x.id===editItem.id ? {...x,...payload} : x))
     } else {
-      const { data } = await supabase.from('padel_courts').insert([{...payload, tenant_id:tenantId}]).select().single()
+      const { data, error } = await supabase.rpc('insert_padel_court', { p_name:payload.name, p_description:payload.description||'', p_price_per_hour:payload.price_per_hour||0, p_type:payload.type||'indoor', p_surface:payload.surface||'synthetic', p_open_time:payload.open_time||'08:00', p_close_time:payload.close_time||'22:00', p_slot_duration:payload.slot_duration||90, p_days_open:payload.days_open||[] })
+      if (error) { alert('Erreur: '+error.message); setSaving(false); return }
       if (data) setCourts(p=>[...p,data])
     }
     setShowForm(false); setSaving(false)
@@ -78,28 +80,30 @@ export default function CampiPage() {
 
   const deleteItem = async (id:string) => {
     if (!confirm('Supprimer ce terrain ?')) return
-    await supabase.from('padel_courts').delete().eq('id', id)
+    const { error: dErr } = await supabase.rpc('delete_padel_court', { p_id: id })
+    if (dErr) { alert('Erreur: '+dErr.message); return }
     setCourts(p=>p.filter(x=>x.id!==id))
   }
 
   const toggleActive = async (c:any) => {
-    await supabase.from('padel_courts').update({ is_active:!c.is_active }).eq('id',c.id)
+    const { data: newValP, error: tErrP } = await supabase.rpc('toggle_padel_court_active', { p_id:c.id })
+    if (tErrP) { alert('Erreur: '+tErrP.message); return }
     setCourts(p=>p.map(x=>x.id===c.id ? {...x,is_active:!x.is_active} : x))
   }
 
-  if (loading) return <div style={{minHeight:'100vh',background:'#0a0a0f',display:'flex',alignItems:'center',justifyContent:'center',color:'#6b7280'}}>Chargement...</div>
+  if (loading) return <div style={{minHeight:'100vh',background:'white',display:'flex',alignItems:'center',justifyContent:'center',color:'#94a3b8'}}>Chargement...</div>
 
   return (
-    <div style={{minHeight:'100vh',background:'#0a0a0f',fontFamily:'system-ui,sans-serif',color:'#f1f1f1'}}>
-      <div style={{borderBottom:'1px solid #1f2030',padding:'14px 28px',display:'flex',alignItems:'center',gap:'12px'}}>
-        <Link href="/dashboard/padel" style={{color:'#6b7280',textDecoration:'none',fontSize:'13px'}}>← Padel</Link>
+    <div style={{minHeight:'100vh',background:'white',fontFamily:'system-ui,sans-serif',color:'#0f172a'}}>
+      <div style={{borderBottom:'1px solid #e2e8f0',padding:'14px 28px',display:'flex',alignItems:'center',gap:'12px'}}>
+        <Link href="/dashboard/padel" style={{color:'#94a3b8',textDecoration:'none',fontSize:'13px'}}>← Padel</Link>
         <span style={{color:'#374151'}}>|</span>
         <span style={{fontWeight:600}}>🎾 Gestion des Terrains</span>
       </div>
 
       <div style={{maxWidth:'860px',margin:'0 auto',padding:'24px 20px 80px'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
-          <span style={{color:'#9ca3af',fontSize:'13px'}}>{courts.length} terrain(s)</span>
+          <span style={{color:'#64748b',fontSize:'13px'}}>{courts.length} terrain(s)</span>
           <button onClick={()=>openEdit()} style={BTN()}>+ Nouveau terrain</button>
         </div>
 
@@ -135,7 +139,7 @@ export default function CampiPage() {
 
             {/* Horaires */}
             <div style={{background:'#0d0d15',borderRadius:'10px',padding:'14px',marginBottom:'12px'}}>
-              <div style={{fontSize:'12px',fontWeight:600,color:'#9ca3af',marginBottom:'10px'}}>⏰ HORAIRES D'OUVERTURE</div>
+              <div style={{fontSize:'12px',fontWeight:600,color:'#64748b',marginBottom:'10px'}}>⏰ HORAIRES D'OUVERTURE</div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'12px'}}>
                 <div><label style={LS}>Ouverture</label><input style={IS} type="time" value={form.open_time} onChange={e=>setForm((p:any)=>({...p,open_time:e.target.value}))} /></div>
                 <div><label style={LS}>Fermeture</label><input style={IS} type="time" value={form.close_time} onChange={e=>setForm((p:any)=>({...p,close_time:e.target.value}))} /></div>
@@ -155,7 +159,7 @@ export default function CampiPage() {
               </div>
             </div>
 
-            <div style={{marginBottom:'14px'}}><label style={LS}>Description / Notes</label><textarea style={{...IS,height:'60px',resize:'vertical' as const}} value={form.description} onChange={e=>setForm((p:any)=>({...p,description:e.target.value}))} /></div>
+            <div style={{marginBottom:'14px'}}><label style={LS}>Description / Notes</label><textarea style={{...IS,height:'60px',resize:'vertical'}} value={form.description} onChange={e=>setForm((p:any)=>({...p,description:e.target.value}))} /></div>
 
             <div style={{display:'flex',gap:'8px'}}>
               <button onClick={save} disabled={!form.name||saving} style={BTN(saving?'#374151':'#3b82f6')}>{saving?'Sauvegarde...':'✓ Sauvegarder'}</button>
@@ -165,7 +169,7 @@ export default function CampiPage() {
         )}
 
         <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
-          {courts.length===0 && <div style={{textAlign:'center',color:'#6b7280',padding:'32px',background:'#111118',borderRadius:'12px'}}>Aucun terrain. Ajoutez votre premier terrain !</div>}
+          {courts.length===0 && <div style={{textAlign:'center',color:'#94a3b8',padding:'20px 24px',background:'white',borderRadius:'12px'}}>Aucun terrain. Ajoutez votre premier terrain !</div>}
           {courts.map(c=>{
             const daysStr = (c.days_open||[]).sort().map((d:number)=>DAYS[d]).join(', ')
             return (
@@ -175,8 +179,8 @@ export default function CampiPage() {
                   <div style={{fontWeight:500,fontSize:'14px'}}>{c.name}
                     <span style={{marginLeft:'8px',fontSize:'11px',background:c.type==='indoor'?'#1e40af':'#065f46',color:'white',padding:'1px 6px',borderRadius:'8px'}}>{c.type==='indoor'?'Couvert':'Découvert'}</span>
                   </div>
-                  <div style={{fontSize:'12px',color:'#6b7280'}}>{SURFACE_LABELS[c.surface]||c.surface} · {c.open_time||'08:00'}–{c.close_time||'22:00'} · créneaux {c.slot_duration||90}min</div>
-                  <div style={{fontSize:'11px',color:'#4b5563'}}>{daysStr}</div>
+                  <div style={{fontSize:'12px',color:'#94a3b8'}}>{SURFACE_LABELS[c.surface]||c.surface} · {c.open_time||'08:00'}–{c.close_time||'22:00'} · créneaux {c.slot_duration||90}min</div>
+                  <div style={{fontSize:'11px',color:'#94a3b8'}}>{daysStr}</div>
                 </div>
                 <div style={{fontFamily:'monospace',fontWeight:700,color:'#f59e0b',fontSize:'15px'}}>€{parseFloat(c.price_per_hour||0).toFixed(0)}/h</div>
                 <div style={{display:'flex',gap:'6px'}}>

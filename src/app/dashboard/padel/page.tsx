@@ -3,109 +3,185 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
+import AppShell from '@/components/AppShell'
+import { useI18n } from '@/lib/i18n-context'
+import { useStaffNav } from '@/lib/useStaffNav'
+
+const SC: Record<string,{label:string;color:string}> = {
+  confirmed:   { label:'Confermata', color:'#3b82f6' },
+  in_progress: { label:'In corso',   color:'#f59e0b' },
+  completed:   { label:'Completata', color:'#10b981' },
+  cancelled:   { label:'Cancellata', color:'#ef4444' },
+}
 
 export default function PadelPage() {
   const router = useRouter()
+  const { backHref } = useStaffNav()
+  const { t } = useI18n()
   const [courts, setCourts] = useState<any[]>([])
-  const [bookings, setBookings] = useState<any[]>([])
+  const [todayBookings, setTodayBookings] = useState<any[]>([])
+  const [upcomingBookings, setUpcomingBookings] = useState<any[]>([])
+  const [stats, setStats] = useState({ today:0, upcoming:0, revenue:0, courts_active:0 })
+  const [user, setUser] = useState<any>(null)
+  const [tenant, setTenant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [viewDate, setViewDate] = useState(new Date().toISOString().split('T')[0])
+  const today = new Date().toISOString().split('T')[0]
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) { router.replace('/'); return }
-      loadData()
+      load()
     })
-  }, [])
+  }, [viewDate])
 
-  const loadData = async () => {
-    const today = new Date().toISOString().split('T')[0]
-    const [courtsRes, bookRes] = await Promise.all([
+  const load = async () => {
+    const [courtsRes, bookRes, allRes] = await Promise.all([
       supabase.from('padel_courts').select('*').order('name'),
-      supabase.from('padel_bookings').select('*, court:padel_courts(name)').gte('date', today).order('date').order('start_time').limit(10),
+      supabase.from('padel_bookings').select('*, court:padel_courts(name)').eq('date', viewDate).neq('status','cancelled').order('start_time'),
+      supabase.from('padel_bookings').select('status, date, price').gte('date', today).neq('status','cancelled'),
     ])
+    const all = allRes.data || []
     setCourts(courtsRes.data || [])
-    setBookings(bookRes.data || [])
+    setTodayBookings(bookRes.data || [])
+    setUpcomingBookings(all.filter(b => b.date > viewDate).slice(0, 8) as any[])
+    setStats({
+      today: (bookRes.data||[]).length,
+      upcoming: all.filter(b => b.date > viewDate).length,
+      revenue: all.filter(b => b.status==='completed').reduce((s,b)=>s+Number(b.price||0), 0),
+      courts_active: (courtsRes.data||[]).filter(c=>c.is_active).length,
+    })
     setLoading(false)
   }
 
-  const SC: Record<string, { label: string; color: string }> = {
-    confirmed:   { label: 'Confermata', color: '#3b82f6' },
-    in_progress: { label: 'In corso',   color: '#f59e0b' },
-    completed:   { label: 'Completata', color: '#10b981' },
-    cancelled:   { label: 'Cancellata', color: '#ef4444' },
+  const moveDate = (d: number) => {
+    const dt = new Date(viewDate); dt.setDate(dt.getDate()+d)
+    setViewDate(dt.toISOString().split('T')[0])
   }
 
-  if (loading) return <div style={{ minHeight: '100vh', background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ color: '#6b7280' }}>Caricamento...</div></div>
+  // Genera slot orari per la griglia
+  const generateSlots = (court: any) => {
+    const slots: { time: string; booking: any; }[] = []
+    const open = court.open_time?.slice(0,5) || '08:00'
+    const close = court.close_time?.slice(0,5) || '22:00'
+    const [oh,om] = open.split(':').map(Number)
+    const [ch,cm] = close.split(':').map(Number)
+    let cur = oh*60+om
+    const end = ch*60+cm
+    while (cur < end) {
+      const h = Math.floor(cur/60).toString().padStart(2,'0')
+      const m = (cur%60).toString().padStart(2,'0')
+      const time = `${h}:${m}`
+      const booking = todayBookings.find(b => b.court_id === court.id && b.start_time?.slice(0,5) === time)
+      slots.push({ time, booking })
+      cur += court.slot_duration || 90
+    }
+    return slots
+  }
+
+  if (loading) return <div style={{ minHeight:'100vh', background:'white', display:'flex', alignItems:'center', justifyContent:'center' }}><div style={{ color:'#94a3b8' }}>Caricamento...</div></div>
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', fontFamily: 'system-ui, sans-serif' }}>
-      <div style={{ borderBottom: '1px solid #1f2030', padding: '16px 32px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-        <Link href="/dashboard" style={{ color: '#6b7280', textDecoration: 'none', fontSize: '14px' }}>← Dashboard</Link>
-        <span style={{ color: '#2a2a3a' }}>|</span>
-        <span style={{ fontSize: '20px' }}>🎾</span>
-        <h1 style={{ fontSize: '18px', fontWeight: '600', color: '#f1f1f1', margin: 0 }}>Padel</h1>
-      </div>
+    <AppShell title="Padel" tenantName={tenant?.business_name} userEmail={user?.email}>
+        <Link href="/dashboard/padel/prenotazioni" style={{ padding:'8px 16px', background:'#f59e0b', color:'white', borderRadius:'8px', textDecoration:'none', fontSize:'13px', fontWeight:'500' }}>+ Nuova prenotazione</Link>
 
-      <div style={{ padding: '32px' }}>
-        {/* Campi */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px', marginBottom: '32px' }}>
-          {courts.map(c => (
-            <div key={c.id} style={{ background: '#111118', border: '1px solid #f59e0b40', borderRadius: '14px', padding: '24px' }}>
-              <div style={{ fontSize: '28px', marginBottom: '8px' }}>🎾</div>
-              <div style={{ fontSize: '18px', fontWeight: '700', color: '#f1f1f1' }}>{c.name}</div>
-              <div style={{ fontSize: '13px', color: '#9ca3af', marginTop: '4px' }}>{c.type === 'indoor' ? '🏠 Indoor' : '☀️ Outdoor'} · {c.surface}</div>
-              <div style={{ fontSize: '16px', fontWeight: '600', color: '#f59e0b', marginTop: '8px' }}>€{c.price_per_hour}/ora</div>
+      <div style={{ padding:'20px 24px' }}>
+        {/* Stats */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(140px,1fr))', gap:'10px', marginBottom:'20px' }}>
+          {[
+            { label:t('today'), value:stats.today,         color:'#3b82f6', icon:'📅' },
+            { label:t('upcoming'),          value:stats.upcoming,      color:'#f59e0b', icon:'⏰' },
+            { label:t('courts'),      value:stats.courts_active, color:'#10b981', icon:'🎾' },
+            { label:t('revenue'),           value:`€${stats.revenue.toFixed(0)}`, color:'#8b5cf6', icon:'💶' },
+          ].map(s => (
+            <div key={s.label} style={{ background:'white', border:'1px solid #e2e8f0', borderRadius:'10px', padding:'14px' }}>
+              <div style={{ fontSize:'16px', marginBottom:'6px' }}>{s.icon}</div>
+              <div style={{ fontSize:'20px', fontWeight:'700', color:s.color, lineHeight:1 }}>{s.value}</div>
+              <div style={{ fontSize:'11px', color:'#94a3b8', marginTop:'4px' }}>{s.label}</div>
             </div>
           ))}
         </div>
 
         {/* Azioni */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px', marginBottom: '32px' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(160px,1fr))', gap:'10px', marginBottom:'20px' }}>
           {[
-            { href: '/dashboard/padel/prenotazioni', label: 'Prenotazioni', icon: '📋', color: '#f59e0b' },
-            { href: '/dashboard/padel/campi', label: 'Gestione Campi', icon: '🎾', color: '#10b981' },
+            { href:'/dashboard/padel/prenotazioni', label:t('bookings'), icon:'📋', color:'#f59e0b' },
+            { href:'/dashboard/padel/campi',        label:t('courts'),        icon:'🎾', color:'#10b981' },
+            { href:'/dashboard/agenda/padel',       label:t('agenda') + ' padel',          icon:'📆', color:'#f43f5e' },
           ].map(a => (
-            <Link key={a.href} href={a.href} style={{ textDecoration: 'none' }}>
-              <div style={{ background: '#111118', border: `1px solid ${a.color}40`, borderRadius: '12px', padding: '20px', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = a.color)}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = `${a.color}40`)}>
-                <span style={{ fontSize: '24px' }}>{a.icon}</span>
-                <span style={{ color: '#f1f1f1', fontWeight: '500', fontSize: '14px' }}>{a.label}</span>
+            <Link key={a.href} href={a.href} style={{ textDecoration:'none' }}>
+              <div style={{ background:'white', border:`1px solid ${a.color}30`, borderRadius:'10px', padding:'14px 16px', display:'flex', alignItems:'center', gap:'10px', cursor:'pointer', transition:'border-color 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = a.color}
+                onMouseLeave={e => e.currentTarget.style.borderColor = a.color+'30'}>
+                <span style={{ fontSize:'18px' }}>{a.icon}</span>
+                <span style={{ color:'#0f172a', fontSize:'13px', fontWeight:'500' }}>{a.label}</span>
               </div>
             </Link>
           ))}
         </div>
 
-        {/* Prossime prenotazioni */}
-        <div style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '16px', overflow: 'hidden' }}>
-          <div style={{ padding: '20px 24px', borderBottom: '1px solid #1f2030', display: 'flex', justifyContent: 'space-between' }}>
-            <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f1f1', margin: 0 }}>Prossime prenotazioni</h2>
-            <Link href="/dashboard/padel/prenotazioni" style={{ fontSize: '13px', color: '#f59e0b', textDecoration: 'none' }}>Vedi tutte →</Link>
-          </div>
-          {bookings.length === 0 ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: '#6b7280' }}>Nessuna prenotazione. <Link href="/dashboard/padel/prenotazioni" style={{ color: '#f59e0b' }}>Crea la prima →</Link></div>
-          ) : (
-            <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {bookings.map(b => {
-                const sc = SC[b.status]
-                return (
-                  <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid #1f2030' }}>
-                    <div>
-                      <div style={{ fontSize: '15px', fontWeight: '600', color: '#f1f1f1' }}>{b.player_name}</div>
-                      <div style={{ fontSize: '13px', color: '#6b7280' }}>{b.court?.name} · {b.players_count} giocatori</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '14px', color: '#f59e0b', fontWeight: '600' }}>{b.start_time?.slice(0,5)} - {b.end_time?.slice(0,5)}</div>
-                      <div style={{ fontSize: '13px', color: '#6b7280' }}>{b.date}</div>
-                      <span style={{ background: sc.color + '20', color: sc.color, padding: '2px 8px', borderRadius: '12px', fontSize: '11px' }}>{sc.label}</span>
-                    </div>
-                  </div>
-                )
-              })}
+        {/* Griglia disponibilità */}
+        <div style={{ background:'white', border:'1px solid #e2e8f0', borderRadius:'14px', overflow:'hidden', marginBottom:'16px' }}>
+          <div style={{ padding:'14px 18px', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <h2 style={{ fontSize:'14px', fontWeight:'600', color:'#0f172a', margin:0 }}>Griglia disponibilità</h2>
+            <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+              <button onClick={() => moveDate(-1)} style={{ padding:'4px 8px', background:'#f1f5f9', border:'none', color:'#64748b', borderRadius:'6px', cursor:'pointer', fontSize:'13px' }}>←</button>
+              <span style={{ fontSize:'13px', color:'#0f172a', minWidth:'120px', textAlign:'center' }}>
+                {viewDate === today ? 'Oggi' : viewDate}
+              </span>
+              <button onClick={() => moveDate(1)} style={{ padding:'4px 8px', background:'#f1f5f9', border:'none', color:'#64748b', borderRadius:'6px', cursor:'pointer', fontSize:'13px' }}>→</button>
+              {viewDate !== today && <button onClick={() => setViewDate(today)} style={{ padding:'4px 8px', background:'#3b82f620', border:'1px solid #3b82f640', color:'#60a5fa', borderRadius:'6px', cursor:'pointer', fontSize:'11px' }}>Oggi</button>}
             </div>
-          )}
+          </div>
+          <div style={{ padding:'16px', overflowX:'auto' }}>
+            {courts.filter(c => c.is_active).length === 0 ? (
+              <div style={{ textAlign:'center', color:'#94a3b8', fontSize:'13px', padding:'20px' }}>
+                Nessun campo attivo. <Link href="/dashboard/padel/campi" style={{ color:'#f59e0b' }}>Aggiungi un campo →</Link>
+              </div>
+            ) : (
+              <div style={{ display:'flex', gap:'12px' }}>
+                {courts.filter(c => c.is_active).map(court => {
+                  const slots = generateSlots(court)
+                  return (
+                    <div key={court.id} style={{ flex:1, minWidth:'180px' }}>
+                      <div style={{ fontSize:'13px', fontWeight:'600', color:'#f59e0b', marginBottom:'8px', textAlign:'center' }}>
+                        🎾 {court.name}
+                        <div style={{ fontSize:'10px', color:'#94a3b8', fontWeight:'400' }}>€{court.price_per_hour}/h · {court.type==='indoor'?'Indoor':'Outdoor'}</div>
+                      </div>
+                      <div style={{ display:'flex', flexDirection:'column', gap:'4px' }}>
+                        {slots.map(slot => {
+                          const bk = slot.booking
+                          const sc = bk ? SC[bk.status] : null
+                          return (
+                            <div key={slot.time} style={{
+                              padding:'8px 10px', borderRadius:'8px', border:'1px solid',
+                              borderColor: bk ? (sc?.color||'#6b7280')+'50' : '#2a2a3a',
+                              background: bk ? (sc?.color||'#6b7280')+'15' : '#1a1a25',
+                              cursor:'pointer',
+                            }}
+                              onClick={() => bk ? null : window.location.href='/dashboard/padel/prenotazioni'}
+                              title={bk ? `${bk.player_name} — ${sc?.label}` : 'Libero — clicca per prenotare'}>
+                              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                <span style={{ fontSize:'11px', fontWeight:'600', color: bk ? sc?.color : '#6b7280' }}>{slot.time}</span>
+                                {bk ? (
+                                  <span style={{ fontSize:'10px', color:sc?.color, background:sc?.color+'20', padding:'1px 6px', borderRadius:'6px' }}>{sc?.label}</span>
+                                ) : (
+                                  <span style={{ fontSize:'10px', color:'#10b981' }}>Libero</span>
+                                )}
+                              </div>
+                              {bk && <div style={{ fontSize:'11px', color:'#64748b', marginTop:'2px' }}>{bk.player_name} · {bk.players_count}p</div>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </AppShell>
   )
 }

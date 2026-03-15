@@ -5,11 +5,11 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { getTenantId } from '@/lib/tenant'
 
-const IS: any = { width:'100%', padding:'9px 12px', background:'#0a0a0f', border:'1px solid #2a2a3a', borderRadius:'8px', color:'#f1f1f1', fontSize:'13px', outline:'none', boxSizing:'border-box' }
-const LS: any = { display:'block', fontSize:'12px', color:'#9ca3af', marginBottom:'5px' }
+const IS: any = { width:'100%', padding:'9px 12px', background:'white', border:'1px solid #e2e8f0', borderRadius:'8px', color:'#0f172a', fontSize:'13px', outline:'none', boxSizing:'border-box' }
+const LS: any = { display:'block', fontSize:'12px', color:'#64748b', marginBottom:'5px' }
 const BTN = (c='#3b82f6'): any => ({ padding:'7px 14px', background:c, border:'none', borderRadius:'7px', color:'white', fontSize:'12px', fontWeight:500, cursor:'pointer' })
-const CARD: any = { background:'#111118', border:'1px solid #1f2030', borderRadius:'12px', padding:'20px' }
-const ROW: any = { display:'flex', alignItems:'center', gap:'10px', padding:'12px 14px', background:'#0a0a0f', borderRadius:'8px', border:'1px solid #1f2030' }
+const CARD: any = { background:'white', border:'1px solid #e2e8f0', borderRadius:'12px', padding:'20px' }
+const ROW: any = { display:'flex', alignItems:'center', gap:'10px', padding:'12px 14px', background:'white', borderRadius:'8px', border:'1px solid #e2e8f0' }
 
 const CATEGORIES = [
   { value:'massaggio', label:'Massages', icon:'💆' },
@@ -65,10 +65,12 @@ export default function ServiziPage() {
     const tenantId = await getTenantId()
     const payload = { ...svcForm, price:parseFloat(svcForm.price)||0 }
     if (editSvc) {
-      await supabase.from('spa_services').update(payload).eq('id', editSvc.id)
+      const { error } = await supabase.rpc('update_spa_service', { p_id:editSvc.id, p_name:payload.name, p_description:payload.description||'', p_price:payload.price, p_duration_minutes:payload.duration_minutes||60, p_category:payload.category||'massaggio', p_sort_order:payload.sort_order||0 })
+      if (error) { alert('Erreur: '+error.message); setSaving(false); return }
       setServices(p=>p.map(x=>x.id===editSvc.id ? {...x,...payload} : x))
     } else {
-      const { data } = await supabase.from('spa_services').insert([{...payload, tenant_id:tenantId}]).select().single()
+      const { data, error } = await supabase.rpc('insert_spa_service', { p_name:payload.name, p_description:payload.description||'', p_price:payload.price, p_duration_minutes:payload.duration_minutes||60, p_category:payload.category||'massaggio', p_sort_order:payload.sort_order||0 })
+      if (error) { alert('Erreur: '+error.message); setSaving(false); return }
       if (data) setServices(p=>[...p,data])
     }
     setShowSvcForm(false); setSaving(false)
@@ -76,12 +78,14 @@ export default function ServiziPage() {
 
   const deleteSvc = async (id:string) => {
     if (!confirm('Supprimer ce service ?')) return
-    await supabase.from('spa_services').delete().eq('id',id)
+    const { error } = await supabase.rpc('delete_spa_service', { p_id: id })
+    if (error) { alert('Erreur: '+error.message); return }
     setServices(p=>p.filter(x=>x.id!==id))
   }
 
   const toggleSvc = async (s:any) => {
-    await supabase.from('spa_services').update({ is_active:!s.is_active }).eq('id',s.id)
+    const { data: newValS, error: tErrS } = await supabase.rpc('toggle_spa_service_active', { p_id:s.id })
+    if (tErrS) { alert('Erreur: '+tErrS.message); return }
     setServices(p=>p.map(x=>x.id===s.id ? {...x,is_active:!x.is_active} : x))
   }
 
@@ -95,10 +99,13 @@ export default function ServiziPage() {
     setSaving(true)
     const tenantId = await getTenantId()
     if (editStaff) {
-      await supabase.from('spa_staff').update(staffForm).eq('id', editStaff.id)
+      const { error } = await supabase.rpc('update_spa_service', { p_id: editStaff.id, p_name: staffForm.name, p_description: staffForm.bio||'', p_price: 0, p_duration_minutes: 0, p_category: staffForm.specialty||'', p_sort_order: 0 })
+      // use direct update for staff since no specific RPC yet
+      await supabase.from('spa_staff').update({ name:staffForm.name, specialty:staffForm.specialty||'', bio:staffForm.bio||'' }).eq('id', editStaff.id)
       setStaff(p=>p.map(x=>x.id===editStaff.id ? {...x,...staffForm} : x))
     } else {
-      const { data } = await supabase.from('spa_staff').insert([{...staffForm, tenant_id:tenantId, is_active:true}]).select().single()
+      const { data, error } = await supabase.rpc('insert_spa_staff', { p_name:staffForm.name, p_specialty:staffForm.specialty||'', p_bio:staffForm.bio||'' })
+      if (error) { alert('Erreur: '+error.message); setSaving(false); return }
       if (data) setStaff(p=>[...p,data])
     }
     setShowStaffForm(false); setSaving(false)
@@ -106,23 +113,24 @@ export default function ServiziPage() {
 
   const deleteStaff = async (id:string) => {
     if (!confirm('Supprimer ce membre du staff ?')) return
-    await supabase.from('spa_staff').delete().eq('id',id)
+    const { error } = await supabase.rpc('delete_spa_staff', { p_id: id })
+    if (error) { alert('Erreur: '+error.message); return }
     setStaff(p=>p.filter(x=>x.id!==id))
   }
 
   const toggleStaff = async (s:any) => {
-    await supabase.from('spa_staff').update({ is_active:!s.is_active }).eq('id',s.id)
+    await supabase.from('spa_staff').update({ is_active:!s.is_active }).eq('id',s.id) // staff toggle ok - RLS allows own tenant
     setStaff(p=>p.map(x=>x.id===s.id ? {...x,is_active:!x.is_active} : x))
   }
 
   const visibleServices = filterCat ? services.filter(s=>s.category===filterCat) : services
 
-  if (loading) return <div style={{minHeight:'100vh',background:'#0a0a0f',display:'flex',alignItems:'center',justifyContent:'center',color:'#6b7280'}}>Chargement...</div>
+  if (loading) return <div style={{minHeight:'100vh',background:'white',display:'flex',alignItems:'center',justifyContent:'center',color:'#94a3b8'}}>Chargement...</div>
 
   return (
-    <div style={{minHeight:'100vh',background:'#0a0a0f',fontFamily:'system-ui,sans-serif',color:'#f1f1f1'}}>
-      <div style={{borderBottom:'1px solid #1f2030',padding:'14px 28px',display:'flex',alignItems:'center',gap:'12px'}}>
-        <Link href="/dashboard/spa" style={{color:'#6b7280',textDecoration:'none',fontSize:'13px'}}>← Spa</Link>
+    <div style={{minHeight:'100vh',background:'white',fontFamily:'system-ui,sans-serif',color:'#0f172a'}}>
+      <div style={{borderBottom:'1px solid #e2e8f0',padding:'14px 28px',display:'flex',alignItems:'center',gap:'12px'}}>
+        <Link href="/dashboard/spa" style={{color:'#94a3b8',textDecoration:'none',fontSize:'13px'}}>← Spa</Link>
         <span style={{color:'#374151'}}>|</span>
         <span style={{fontWeight:600}}>💆 Gestion des Services & Staff</span>
       </div>
@@ -170,7 +178,7 @@ export default function ServiziPage() {
                 </div>
                 <div><label style={LS}>Ordre</label><input style={IS} type="number" value={svcForm.sort_order} onChange={e=>setSvcForm((p:any)=>({...p,sort_order:parseInt(e.target.value)||0}))} /></div>
               </div>
-              <div style={{marginBottom:'14px'}}><label style={LS}>Description</label><textarea style={{...IS,height:'65px',resize:'vertical' as const}} value={svcForm.description} onChange={e=>setSvcForm((p:any)=>({...p,description:e.target.value}))} /></div>
+              <div style={{marginBottom:'14px'}}><label style={LS}>Description</label><textarea style={{...IS,height:'65px',resize:'vertical'}} value={svcForm.description} onChange={e=>setSvcForm((p:any)=>({...p,description:e.target.value}))} /></div>
               <div style={{display:'flex',gap:'8px'}}>
                 <button onClick={saveSvc} disabled={!svcForm.name||saving} style={BTN(saving?'#374151':'#8b5cf6')}>{saving?'Sauvegarde...':'✓ Sauvegarder'}</button>
                 <button onClick={()=>setShowSvcForm(false)} style={BTN('#374151')}>Annuler</button>
@@ -179,7 +187,7 @@ export default function ServiziPage() {
           )}
 
           <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
-            {visibleServices.length===0 && <div style={{textAlign:'center',color:'#6b7280',padding:'32px',background:'#111118',borderRadius:'12px'}}>Aucun service. Ajoutez vos prestations !</div>}
+            {visibleServices.length===0 && <div style={{textAlign:'center',color:'#94a3b8',padding:'20px 24px',background:'white',borderRadius:'12px'}}>Aucun service. Ajoutez vos prestations !</div>}
             {visibleServices.map(s=>{
               const cat = CATEGORIES.find(c=>c.value===s.category)
               return (
@@ -187,7 +195,7 @@ export default function ServiziPage() {
                   <div style={{fontSize:'20px'}}>{cat?.icon||'⭐'}</div>
                   <div style={{flex:1}}>
                     <div style={{fontWeight:500,fontSize:'14px'}}>{s.name}</div>
-                    <div style={{fontSize:'12px',color:'#6b7280'}}>{cat?.label} · {s.duration_minutes} min{s.description?` · ${s.description.substring(0,50)}...`:''}</div>
+                    <div style={{fontSize:'12px',color:'#94a3b8'}}>{cat?.label} · {s.duration_minutes} min{s.description?` · ${s.description.substring(0,50)}...`:''}</div>
                   </div>
                   <div style={{fontFamily:'monospace',fontWeight:700,color:'#8b5cf6',fontSize:'15px',marginRight:'8px'}}>€{parseFloat(s.price||0).toFixed(0)}</div>
                   <div style={{display:'flex',gap:'6px'}}>
@@ -204,7 +212,7 @@ export default function ServiziPage() {
         {/* ─ STAFF ─ */}
         {tab==='staff' && <>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
-            <span style={{color:'#9ca3af',fontSize:'13px'}}>{staff.length} membre(s) de l'équipe</span>
+            <span style={{color:'#64748b',fontSize:'13px'}}>{staff.length} membre(s) de l'équipe</span>
             <button onClick={()=>openStaffEdit()} style={BTN('#8b5cf6')}>+ Nouveau thérapeute</button>
           </div>
 
@@ -215,7 +223,7 @@ export default function ServiziPage() {
                 <div><label style={LS}>Nom *</label><input style={IS} value={staffForm.name} onChange={e=>setStaffForm((p:any)=>({...p,name:e.target.value}))} placeholder="Ex: Marie Dupont" /></div>
                 <div><label style={LS}>Spécialité</label><input style={IS} value={staffForm.specialty} onChange={e=>setStaffForm((p:any)=>({...p,specialty:e.target.value}))} placeholder="Ex: Massages, Soins visage" /></div>
               </div>
-              <div style={{marginBottom:'14px'}}><label style={LS}>Bio / Présentation</label><textarea style={{...IS,height:'70px',resize:'vertical' as const}} value={staffForm.bio} onChange={e=>setStaffForm((p:any)=>({...p,bio:e.target.value}))} /></div>
+              <div style={{marginBottom:'14px'}}><label style={LS}>Bio / Présentation</label><textarea style={{...IS,height:'70px',resize:'vertical'}} value={staffForm.bio} onChange={e=>setStaffForm((p:any)=>({...p,bio:e.target.value}))} /></div>
               <div style={{display:'flex',gap:'8px'}}>
                 <button onClick={saveStaff} disabled={!staffForm.name||saving} style={BTN(saving?'#374151':'#8b5cf6')}>{saving?'Sauvegarde...':'✓ Sauvegarder'}</button>
                 <button onClick={()=>setShowStaffForm(false)} style={BTN('#374151')}>Annuler</button>
@@ -224,7 +232,7 @@ export default function ServiziPage() {
           )}
 
           <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
-            {staff.length===0 && <div style={{textAlign:'center',color:'#6b7280',padding:'32px',background:'#111118',borderRadius:'12px'}}>Aucun thérapeute. Ajoutez votre équipe !</div>}
+            {staff.length===0 && <div style={{textAlign:'center',color:'#94a3b8',padding:'20px 24px',background:'white',borderRadius:'12px'}}>Aucun thérapeute. Ajoutez votre équipe !</div>}
             {staff.map(s=>(
               <div key={s.id} style={{...ROW,opacity:s.is_active!==false?1:0.5}}>
                 <div style={{width:'36px',height:'36px',borderRadius:'50%',background:'#8b5cf6',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'16px',flexShrink:0}}>
@@ -232,7 +240,7 @@ export default function ServiziPage() {
                 </div>
                 <div style={{flex:1}}>
                   <div style={{fontWeight:500,fontSize:'14px'}}>{s.name}</div>
-                  <div style={{fontSize:'12px',color:'#6b7280'}}>{s.specialty||'—'}{s.bio?` · ${s.bio.substring(0,60)}...`:''}</div>
+                  <div style={{fontSize:'12px',color:'#94a3b8'}}>{s.specialty||'—'}{s.bio?` · ${s.bio.substring(0,60)}...`:''}</div>
                 </div>
                 <div style={{display:'flex',gap:'6px'}}>
                   <button onClick={()=>toggleStaff(s)} style={{...BTN(s.is_active!==false?'#374151':'#059669'),padding:'5px 9px',fontSize:'11px'}}>{s.is_active!==false?'OFF':'ON'}</button>

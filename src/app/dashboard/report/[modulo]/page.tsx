@@ -224,7 +224,7 @@ function ReportContent() {
   const printDate = today.toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' })
 
   if (loading) return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ minHeight: '100vh', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ color: '#6b7280', fontSize: '14px' }}>Generazione report in corso...</div>
     </div>
   )
@@ -537,7 +537,7 @@ function RevenueBox({ revenue, cancelled, complimentary, label }: { revenue: num
 function DetailTable({ title, headers, rows }: { title: string; headers: string[]; rows: any[][] }) {
   return (
     <div style={{ marginBottom: '12px' }}>
-      <div style={{ fontSize: '9pt', fontWeight: '700', color: '#555', marginBottom: '6px', textTransform: 'uppercase' as const, letterSpacing: '0.5px' }}>{title}</div>
+      <div style={{ fontSize: '9pt', fontWeight: '700', color: '#555', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</div>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '9pt' }}>
         <thead>
           <tr style={{ background: '#f5f5f5' }}>
@@ -558,7 +558,7 @@ function DetailTable({ title, headers, rows }: { title: string; headers: string[
 
 export default function ReportModuloPage() {
   return (
-    <Suspense fallback={<div style={{ minHeight: '100vh', background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ color: '#6b7280' }}>Caricamento...</div></div>}>
+    <Suspense fallback={<div style={{ minHeight:'100vh', background:'white', display:'flex', alignItems:'center', justifyContent:'center' }}><div style={{ color:'#94a3b8' }}>Caricamento...</div></div>}>
       <ReportContent />
     </Suspense>
   )

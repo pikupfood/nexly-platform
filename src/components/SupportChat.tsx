@@ -1,192 +1,302 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { supabase } from '@/lib/supabase'
+import { getTenantId } from '@/lib/tenant'
 
-type Msg = { role: 'user' | 'assistant'; content: string; ts?: string }
+type Msg = { role: 'user' | 'assistant'; content: string; ts?: string; actions?: Action[] }
 type ChatType = 'support' | 'bug' | 'feature'
+type Action = { type: 'vai' | 'aggiorna' | 'contatta' | 'email'; value?: string; label: string }
 
 const TYPE_CFG = {
-  support: { label: '💬 Aide',        color: '#1a1a1a' },
-  bug:     { label: '🐛 Bug',         color: '#dc2626' },
-  feature: { label: '✨ Suggestion',  color: '#7c3aed' },
+  support: { label: '💬 Assistente', color: '#3b82f6' },
+  bug:     { label: '🐛 Bug',        color: '#ef4444' },
+  feature: { label: '✨ Idea',       color: '#8b5cf6' },
 }
 
-const GREET: Record<ChatType, string> = {
-  support: "Bonjour ! 👋 Je suis votre assistant Nexly Hub. Comment puis-je vous aider avec votre abonnement ou portail ?",
-  bug:     "Bonjour ! 🐛 Décrivez le bug : sur quelle page, que s'est-il passé ?",
-  feature: "Bonjour ! ✨ Quelle fonctionnalité aimeriez-vous voir sur Nexly Hub ?",
+const QUICK_QUESTIONS = [
+  "Quante camere libere oggi?",
+  "Chi fa check-in oggi?",
+  "Appuntamenti spa di oggi",
+  "Revenue di questo mese",
+  "Come aggiungo una prenotazione?",
+  "Prenotazioni padel di oggi",
+]
+
+function parseActions(text: string): { cleanText: string; actions: Action[] } {
+  const actions: Action[] = []
+  let cleanText = text
+  const re = /\[AZIONE:([^\]:]+)(?::([^\]:]+))?(?::([^\]]+))?\]/g
+  let match
+  while ((match = re.exec(text)) !== null) {
+    const type = match[1] as Action['type']
+    const value = match[2]
+    const label = match[3]
+    if (type === 'vai' && value) {
+      actions.push({ type:'vai', value, label: label || `→ ${value.split('/').filter(Boolean).pop()?.replace(/-/g,' ')}` })
+    } else if (type === 'aggiorna') {
+      actions.push({ type:'aggiorna', label: '↻ Aggiorna' })
+    } else if (type === 'contatta') {
+      actions.push({ type:'contatta', label: '📧 Supporto' })
+    }
+    cleanText = cleanText.replace(match[0], '')
+  }
+  return { cleanText: cleanText.trim(), actions }
 }
 
-export default function SupportChat({ tenantId }: { tenantId?: string }) {
+export default function SupportChat() {
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<ChatType>('support')
   const [messages, setMessages] = useState<Record<ChatType, Msg[]>>({
-    support: [{ role: 'assistant', content: GREET.support }],
-    bug: [{ role: 'assistant', content: GREET.bug }],
-    feature: [{ role: 'assistant', content: GREET.feature }],
+    support: [{ role:'assistant', content:"Ciao! 👋 Sono **NexlyAI**. Ho accesso completo ai dati della tua struttura in tempo reale.\n\nPosso rispondere su prenotazioni, statistiche, clienti, staff, e guidarti in ogni operazione. Come posso aiutarti?" }],
+    bug:     [{ role:'assistant', content:"🐛 Descrivi il problema: su quale pagina si trova, cosa è successo e cosa ti aspettavi di vedere." }],
+    feature: [{ role:'assistant', content:"✨ Quale funzionalità ti renderebbe il lavoro più facile? Ogni idea viene valutata dal team di Nexly." }],
   })
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [tenantId, setTenantId] = useState<string|null>(null)
+  const [unread, setUnread] = useState(0)
+  const [minimized, setMinimized] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
+  useEffect(() => { getTenantId().then(id => setTenantId(id)) }, [])
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (open) bottomRef.current?.scrollIntoView({ behavior:'smooth' })
   }, [messages, open])
 
-  const send = async () => {
-    const text = input.trim()
+  const send = async (overrideText?: string) => {
+    const text = (overrideText || input).trim()
     if (!text || loading) return
 
-    const userMsg: Msg = { role: 'user', content: text, ts: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) }
+    const ts = new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})
+    const userMsg: Msg = { role:'user', content:text, ts }
     const newMsgs = [...messages[tab], userMsg]
-    setMessages(prev => ({ ...prev, [tab]: newMsgs }))
+    setMessages(prev => ({...prev, [tab]:newMsgs}))
     setInput('')
     setLoading(true)
 
     try {
       const res = await fetch('/api/support', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: newMsgs.map(m => ({ role: m.role, content: m.content })),
-          tenantId,
-          type: tab,
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          messages: newMsgs.map(m=>({role:m.role, content:m.content})),
+          tenantId, type:tab
         })
       })
       const data = await res.json()
+      const raw = data.response || "Risposta non disponibile."
+      const { cleanText, actions } = parseActions(raw)
       const aiMsg: Msg = {
-        role: 'assistant',
-        content: data.response || '❌ Erreur de connexion.',
-        ts: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+        role:'assistant', content:cleanText, ts:new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}),
+        actions: actions.length > 0 ? actions : undefined
       }
-      setMessages(prev => ({ ...prev, [tab]: [...newMsgs, aiMsg] }))
+      setMessages(prev => ({...prev, [tab]:[...newMsgs, aiMsg]}))
+      if (!open) setUnread(n => n+1)
     } catch {
-      setMessages(prev => ({ ...prev, [tab]: [...newMsgs, { role: 'assistant', content: '❌ Erreur. Réessayez.' }] }))
-    } finally {
-      setLoading(false)
+      setMessages(prev => ({...prev, [tab]:[...newMsgs, { role:'assistant', content:'⚠️ Errore di connessione. Riprova.' }]}))
     }
+    setLoading(false)
+    setTimeout(() => inputRef.current?.focus(), 100)
+  }
+
+  const handleAction = (a: Action) => {
+    if (a.type === 'vai' && a.value) router.push(a.value)
+    else if (a.type === 'aggiorna') window.location.reload()
+    else if (a.type === 'contatta') window.open('mailto:support@nexlyhub.com')
+  }
+
+  const currentMsgs = messages[tab]
+  const hasMessages = currentMsgs.length > 1
+
+  // Render markdown-like bold
+  const renderContent = (text: string) => {
+    const parts = text.split(/(\*\*[^*]+\*\*)/g)
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} style={{color:'#f1f1f1'}}>{part.slice(2,-2)}</strong>
+      }
+      return <span key={i}>{part}</span>
+    })
   }
 
   return (
     <>
-      {/* Bubble */}
-      <button onClick={() => setOpen(o => !o)} style={{
-        position: 'fixed', bottom: '24px', right: '24px', zIndex: 1000,
-        width: '52px', height: '52px', borderRadius: '50%',
-        background: open ? '#1a1a1a' : 'white',
-        border: '2px solid #1a1a1a',
-        cursor: 'pointer', boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: '20px', transition: 'all 0.2s',
-      }}>
-        <span style={{ color: open ? 'white' : '#1a1a1a' }}>{open ? '✕' : '💬'}</span>
+      {/* FAB */}
+      <button onClick={() => { setOpen(v=>!v); setUnread(0) }} style={{
+        position:'fixed', bottom:'24px', right:'24px', zIndex:1000,
+        width:'52px', height:'52px', borderRadius:'50%',
+        background:'linear-gradient(135deg,#3b82f6,#8b5cf6)',
+        border:'none', cursor:'pointer', boxShadow:'0 4px 20px rgba(59,130,246,0.5)',
+        display:'flex', alignItems:'center', justifyContent:'center', fontSize:'22px',
+        transition:'transform 0.2s',
+      }}
+        onMouseEnter={e => e.currentTarget.style.transform='scale(1.1)'}
+        onMouseLeave={e => e.currentTarget.style.transform='scale(1)'}
+        title="NexlyAI"
+      >
+        {open ? '✕' : '🤖'}
+        {!open && unread > 0 && (
+          <span style={{ position:'absolute', top:'-4px', right:'-4px', background:'#ef4444', color:'white', borderRadius:'50%', width:'18px', height:'18px', fontSize:'11px', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:'700' }}>{unread}</span>
+        )}
       </button>
 
+      {/* Chat window */}
       {open && (
         <div style={{
-          position: 'fixed', bottom: '86px', right: '24px', zIndex: 1000,
-          width: '350px', maxHeight: '520px',
-          background: 'white', border: '1px solid #e8e6e1', borderRadius: '16px',
-          boxShadow: '0 16px 50px rgba(0,0,0,0.12)',
-          display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          fontFamily: "'system-ui', sans-serif",
-          animation: 'slideUp 0.2s ease',
+          position:'fixed', bottom:'88px', right:'24px', zIndex:999,
+          width:'380px', height: minimized ? '52px' : '560px',
+          background:'#111118', border:'1px solid #2a2a3a',
+          borderRadius:'16px', boxShadow:'0 20px 60px rgba(0,0,0,0.6)',
+          display:'flex', flexDirection:'column', overflow:'hidden',
+          transition:'height 0.2s ease',
+          fontFamily:'system-ui,sans-serif',
         }}>
-          <style>{`
-            @keyframes slideUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
-            @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-5px)} }
-            .sc-input:focus { outline:none; border-color:#1a1a1a !important; }
-          `}</style>
-
           {/* Header */}
-          <div style={{ padding: '14px 16px', borderBottom: '1px solid #f0ede8', background: '#fafaf9' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-              <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px' }}>🤖</div>
+          <div style={{ padding:'12px 16px', background:'linear-gradient(135deg,#1a1a2e,#16213e)', borderBottom:'1px solid #2a2a3a', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+              <div style={{ width:'32px', height:'32px', borderRadius:'50%', background:'linear-gradient(135deg,#3b82f6,#8b5cf6)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'14px' }}>🤖</div>
               <div>
-                <div style={{ fontWeight: '600', fontSize: '14px', color: '#1a1a1a' }}>Nexly Assistant</div>
-                <div style={{ fontSize: '11px', color: '#059669', display: 'flex', alignItems: 'center', gap: '3px' }}>
-                  <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#059669' }} /> En ligne
+                <div style={{ fontSize:'13px', fontWeight:'700', color:'#f1f1f1' }}>NexlyAI</div>
+                <div style={{ fontSize:'10px', color:'#10b981', display:'flex', alignItems:'center', gap:'3px' }}>
+                  <span style={{ width:'5px', height:'5px', borderRadius:'50%', background:'#10b981', display:'inline-block' }} />
+                  Online · Dati in tempo reale
                 </div>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              {(Object.keys(TYPE_CFG) as ChatType[]).map(t => (
-                <button key={t} onClick={() => setTab(t)} style={{
-                  flex: 1, padding: '5px 4px', borderRadius: '8px',
-                  border: `1.5px solid ${tab === t ? TYPE_CFG[t].color : '#e8e6e1'}`,
-                  cursor: 'pointer', fontSize: '10px', fontWeight: tab === t ? '600' : '400',
-                  background: tab === t ? TYPE_CFG[t].color : 'white',
-                  color: tab === t ? 'white' : '#6b6760',
-                  transition: 'all 0.15s',
-                }}>
-                  {TYPE_CFG[t].label}
-                </button>
-              ))}
+            <div style={{ display:'flex', gap:'4px' }}>
+              <button onClick={() => setMinimized(v=>!v)} style={{ background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:'14px', padding:'4px' }}>
+                {minimized ? '⬆' : '⬇'}
+              </button>
+              <button onClick={() => setOpen(false)} style={{ background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:'14px', padding:'4px' }}>✕</button>
             </div>
           </div>
 
-          {/* Messages */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px', minHeight: '180px', maxHeight: '290px', background: 'white' }}>
-            {messages[tab].map((msg, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start', gap: '6px' }}>
-                {msg.role === 'assistant' && (
-                  <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#f5f5f3', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', flexShrink: 0, marginTop: '2px' }}>🤖</div>
+          {!minimized && (
+            <>
+              {/* Tabs */}
+              <div style={{ display:'flex', gap:'0', background:'#0a0a0f', borderBottom:'1px solid #1f2030', flexShrink:0 }}>
+                {(Object.entries(TYPE_CFG) as [ChatType, any][]).map(([k, cfg]) => (
+                  <button key={k} onClick={() => setTab(k)} style={{
+                    flex:1, padding:'8px 4px', background:'none', border:'none',
+                    borderBottom: tab===k ? `2px solid ${cfg.color}` : '2px solid transparent',
+                    color: tab===k ? cfg.color : '#6b7280', cursor:'pointer', fontSize:'11px', fontWeight:'600',
+                    transition:'all 0.15s',
+                  }}>
+                    {cfg.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Messages */}
+              <div style={{ flex:1, overflowY:'auto', padding:'12px', display:'flex', flexDirection:'column', gap:'8px' }}>
+                {currentMsgs.map((m, i) => (
+                  <div key={i}>
+                    <div style={{ display:'flex', justifyContent: m.role==='user' ? 'flex-end' : 'flex-start' }}>
+                      <div style={{
+                        maxWidth:'88%', padding:'9px 13px', borderRadius: m.role==='user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                        background: m.role==='user' ? 'linear-gradient(135deg,#3b82f6,#2563eb)' : '#1f2030',
+                        color: m.role==='user' ? 'white' : '#d1d5db',
+                        fontSize:'13px', lineHeight:'1.5',
+                      }}>
+                        {renderContent(m.content)}
+                        {m.ts && <div style={{ fontSize:'9px', color:'rgba(255,255,255,0.4)', marginTop:'4px', textAlign:'right' }}>{m.ts}</div>}
+                      </div>
+                    </div>
+                    {/* Action buttons */}
+                    {m.actions && m.actions.length > 0 && (
+                      <div style={{ display:'flex', gap:'6px', flexWrap:'wrap', marginTop:'6px', paddingLeft:'4px' }}>
+                        {m.actions.map((a, ai) => (
+                          <button key={ai} onClick={() => handleAction(a)} style={{
+                            padding:'5px 12px', background:'#3b82f620', color:'#60a5fa',
+                            border:'1px solid #3b82f640', borderRadius:'8px',
+                            cursor:'pointer', fontSize:'11px', fontWeight:'600',
+                            transition:'background 0.15s',
+                          }}
+                            onMouseEnter={e => e.currentTarget.style.background='#3b82f640'}
+                            onMouseLeave={e => e.currentTarget.style.background='#3b82f620'}
+                          >
+                            {a.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {loading && (
+                  <div style={{ display:'flex', justifyContent:'flex-start' }}>
+                    <div style={{ padding:'10px 14px', background:'#1f2030', borderRadius:'12px 12px 12px 2px', display:'flex', gap:'4px', alignItems:'center' }}>
+                      {[0,1,2].map(i => (
+                        <div key={i} style={{ width:'5px', height:'5px', borderRadius:'50%', background:'#6b7280', animation:`bounce 1s ${i*0.15}s infinite` }} />
+                      ))}
+                    </div>
+                  </div>
                 )}
-                <div style={{
-                  maxWidth: '80%', padding: '9px 12px', lineHeight: '1.5', fontSize: '13px',
-                  borderRadius: msg.role === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-                  background: msg.role === 'user' ? '#1a1a1a' : '#f5f5f3',
-                  color: msg.role === 'user' ? 'white' : '#1a1a1a',
-                  whiteSpace: 'pre-wrap',
+
+                {/* Domande rapide (solo all'inizio) */}
+                {tab === 'support' && !hasMessages && (
+                  <div style={{ marginTop:'8px' }}>
+                    <div style={{ fontSize:'10px', color:'#4b5563', marginBottom:'6px', textAlign:'center' }}>DOMANDE RAPIDE</div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:'5px' }}>
+                      {QUICK_QUESTIONS.map((q, i) => (
+                        <button key={i} onClick={() => send(q)} style={{
+                          padding:'5px 10px', background:'#1f2030', border:'1px solid #2a2a3a',
+                          borderRadius:'8px', color:'#9ca3af', cursor:'pointer', fontSize:'11px',
+                          transition:'all 0.15s',
+                        }}
+                          onMouseEnter={e => { e.currentTarget.style.background='#2a2a3a'; e.currentTarget.style.color='#f1f1f1' }}
+                          onMouseLeave={e => { e.currentTarget.style.background='#1f2030'; e.currentTarget.style.color='#9ca3af' }}
+                        >
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div ref={bottomRef} />
+              </div>
+
+              {/* Input */}
+              <div style={{ padding:'10px 12px', borderTop:'1px solid #1f2030', display:'flex', gap:'8px', alignItems:'flex-end', flexShrink:0 }}>
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+                  placeholder={tab === 'support' ? "Chiedi qualcosa... (Invio per inviare)" : tab === 'bug' ? "Descrivi il bug..." : "La tua idea..."}
+                  disabled={loading}
+                  rows={1}
+                  style={{
+                    flex:1, background:'#1f2030', border:'1px solid #2a2a3a',
+                    borderRadius:'8px', color:'#f1f1f1', fontSize:'13px',
+                    padding:'8px 12px', resize:'none', outline:'none',
+                    fontFamily:'inherit', lineHeight:'1.4',
+                    maxHeight:'80px', overflowY:'auto',
+                  }}
+                />
+                <button onClick={() => send()} disabled={!input.trim() || loading} style={{
+                  padding:'8px 12px', background: input.trim() ? 'linear-gradient(135deg,#3b82f6,#2563eb)' : '#1f2030',
+                  color: input.trim() ? 'white' : '#6b7280', border:'none', borderRadius:'8px',
+                  cursor: input.trim() ? 'pointer' : 'not-allowed', fontSize:'14px', transition:'all 0.15s', flexShrink:0,
                 }}>
-                  {msg.content}
-                  {msg.ts && <div style={{ fontSize: '10px', color: msg.role === 'user' ? 'rgba(255,255,255,0.5)' : '#9a9690', marginTop: '3px', textAlign: msg.role === 'user' ? 'right' : 'left' }}>{msg.ts}</div>}
-                </div>
+                  ↑
+                </button>
               </div>
-            ))}
-            {loading && (
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#f5f5f3', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px' }}>🤖</div>
-                <div style={{ background: '#f5f5f3', borderRadius: '14px', padding: '10px 14px', display: 'flex', gap: '4px', alignItems: 'center' }}>
-                  {[0,1,2].map(d => <div key={d} style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#9a9690', animation: `bounce 1s ${d*0.2}s infinite` }} />)}
-                </div>
-              </div>
-            )}
-            <div ref={bottomRef} />
-          </div>
-
-          {/* Input */}
-          <div style={{ padding: '10px 12px', borderTop: '1px solid #f0ede8', display: 'flex', gap: '8px', background: '#fafaf9' }}>
-            <input
-              className="sc-input"
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), send())}
-              placeholder="Votre message..."
-              style={{
-                flex: 1, padding: '9px 12px',
-                background: 'white', border: '1px solid #e8e6e1',
-                borderRadius: '10px', color: '#1a1a1a', fontSize: '13px',
-              }}
-            />
-            <button
-              onClick={send}
-              disabled={!input.trim() || loading}
-              style={{
-                padding: '9px 14px', borderRadius: '10px', border: 'none',
-                background: input.trim() && !loading ? TYPE_CFG[tab].color : '#e8e6e1',
-                color: 'white', cursor: input.trim() && !loading ? 'pointer' : 'not-allowed',
-                fontSize: '16px', transition: 'background 0.15s',
-              }}
-            >
-              ➤
-            </button>
-          </div>
-
-          <div style={{ padding: '6px', background: '#fafaf9', borderTop: '1px solid #f0ede8', textAlign: 'center', fontSize: '10px', color: '#c0bdb8' }}>
-            Propulsé par Claude AI · <a href="mailto:support@nexlyhub.com" style={{ color: '#8a8680' }}>support@nexlyhub.com</a>
-          </div>
+            </>
+          )}
         </div>
       )}
+
+      <style>{`
+        @keyframes bounce {
+          0%, 60%, 100% { transform: translateY(0) }
+          30% { transform: translateY(-4px) }
+        }
+      `}</style>
     </>
   )
 }

@@ -1,184 +1,176 @@
 'use client'
-
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
+import AppShell from '@/components/AppShell'
+import { useI18n } from '@/lib/i18n-context'
+import { useStaffNav } from '@/lib/useStaffNav'
+
+const STATUS_COLOR: Record<string,string> = { confirmed:'#3b82f6', pending:'#f59e0b', checked_in:'#10b981', checked_out:'#6b7280', cancelled:'#ef4444', no_show:'#7c3aed' }
+const STATUS_LABEL: Record<string,string> = { confirmed:'Confermata', pending:'In attesa', checked_in:'Check-in', checked_out:'Check-out', cancelled:'Cancellata', no_show:'No show' }
 
 export default function HotelPage() {
   const router = useRouter()
-  const [stats, setStats] = useState({
-    total_rooms: 0,
-    available: 0,
-    occupied: 0,
-    maintenance: 0,
-    today_checkins: 0,
-    today_checkouts: 0,
-    upcoming_reservations: 0,
-    occupancy_rate: 0,
-  })
-  const [recentReservations, setRecentReservations] = useState<any[]>([])
+  const { backHref } = useStaffNav()
+  const { t } = useI18n()
+  const [stats, setStats] = useState({ total_rooms:0, available:0, occupied:0, maintenance:0, today_checkins:0, today_checkouts:0, occupancy_rate:0, week_revenue:0 })
+  const [recent, setRecent] = useState<any[]>([])
+  const [todayCheckins, setTodayCheckins] = useState<any[]>([])
+  const [user, setUser] = useState<any>(null)
+  const [tenant, setTenant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const today = new Date().toISOString().split('T')[0]
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) { router.replace('/'); return }
-      loadData()
+      load()
     })
   }, [])
 
-  const loadData = async () => {
-    const today = new Date().toISOString().split('T')[0]
-
-    const [roomsRes, reservationsRes] = await Promise.all([
-      supabase.from('rooms').select('status'),
+  const load = async () => {
+    const uid = (await supabase.auth.getUser()).data.user?.id
+    const { data: t } = await supabase.from('tenants').select('id').eq('user_id', uid||'').single()
+    const [statsRes, resRes] = await Promise.all([
+      t ? supabase.rpc('get_hotel_stats', { p_tenant_id: t.id }) : Promise.resolve({ data: null }),
       supabase.from('reservations')
-        .select('*, guest:guests(first_name,last_name), room:rooms(room_number), room_type:room_types(name)')
-        .order('created_at', { ascending: false })
-        .limit(5)
+        .select('*, guest:guests(first_name,last_name,email,phone), room:rooms(room_number), room_type:room_types(name)')
+        .order('created_at', { ascending: false }).limit(15),
     ])
-
-    const rooms = roomsRes.data || []
-    const available = rooms.filter(r => r.status === 'available').length
-    const occupied = rooms.filter(r => r.status === 'occupied').length
-    const maintenance = rooms.filter(r => r.status === 'maintenance').length
-
-    const todayCheckins = (reservationsRes.data || []).filter(r => r.check_in === today).length
-    const todayCheckouts = (reservationsRes.data || []).filter(r => r.check_out === today).length
-    const upcoming = (reservationsRes.data || []).filter(r => r.status === 'confirmed' && r.check_in >= today).length
-
-    setStats({
-      total_rooms: rooms.length,
-      available,
-      occupied,
-      maintenance,
-      today_checkins: todayCheckins,
-      today_checkouts: todayCheckouts,
-      upcoming_reservations: upcoming,
-      occupancy_rate: rooms.length > 0 ? Math.round((occupied / rooms.length) * 100) : 0,
-    })
-    setRecentReservations(reservationsRes.data || [])
+    const s = statsRes.data || {}
+    const all = resRes.data || []
+    const occupied = s.occupied||0, total = s.total_rooms||0
+    // Revenue settimana
+    const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate()-7)
+    const weekRev = all.filter(r => r.status === 'checked_out' && new Date(r.check_out) >= weekAgo)
+      .reduce((sum, r) => sum + Number(r.total_price||0), 0)
+    setStats({ total_rooms:total, available:s.available||0, occupied, maintenance:s.maintenance||0,
+      today_checkins:s.checkin_today||0, today_checkouts:s.checkout_today||0,
+      occupancy_rate: total > 0 ? Math.round((occupied/total)*100) : 0, week_revenue: weekRev })
+    setTodayCheckins(all.filter(r => (r.check_in === today && r.status === 'confirmed') || (r.check_out === today && r.status === 'checked_in')))
+    setRecent(all)
     setLoading(false)
   }
 
-  const statusColor: Record<string, string> = {
-    confirmed: '#3b82f6',
-    pending: '#f59e0b',
-    checked_in: '#10b981',
-    checked_out: '#6b7280',
-    cancelled: '#ef4444',
-    no_show: '#7c3aed',
-  }
+  const nights = (a: string, b: string) => Math.round((new Date(b).getTime()-new Date(a).getTime())/(864e5))
 
-  const statusLabel: Record<string, string> = {
-    confirmed: 'Confermata',
-    pending: 'In attesa',
-    checked_in: 'Check-in',
-    checked_out: 'Check-out',
-    cancelled: 'Cancellata',
-    no_show: 'No show',
-  }
-
-  if (loading) return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ color: '#6b7280' }}>Caricamento...</div>
-    </div>
-  )
+  if (loading) return <div style={{ minHeight:'100vh', background:'white', display:'flex', alignItems:'center', justifyContent:'center' }}><div style={{ color:'#94a3b8' }}>Caricamento...</div></div>
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', fontFamily: 'system-ui, sans-serif' }}>
-      {/* Header */}
-      <div style={{ borderBottom: '1px solid #1f2030', padding: '16px 32px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-        <Link href="/dashboard" style={{ color: '#6b7280', textDecoration: 'none', fontSize: '14px' }}>← Dashboard</Link>
-        <span style={{ color: '#2a2a3a' }}>|</span>
-        <span style={{ fontSize: '20px' }}>🏨</span>
-        <h1 style={{ fontSize: '18px', fontWeight: '600', color: '#f1f1f1', margin: 0 }}>Hotel</h1>
-      </div>
-
-      <div style={{ padding: '32px' }}>
-        {/* Stats grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+    <AppShell title="Hôtel" tenantName={tenant?.business_name} userEmail={user?.email}>
+      <div style={{ padding:'20px 24px' }}>
+        {/* KPIs */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(155px,1fr))', gap:'12px', marginBottom:'20px' }}>
           {[
-            { label: 'Camere totali', value: stats.total_rooms, color: '#6b7280', icon: '🛏️' },
-            { label: 'Disponibili', value: stats.available, color: '#10b981', icon: '✅' },
-            { label: 'Occupate', value: stats.occupied, color: '#3b82f6', icon: '🔴' },
-            { label: 'Manutenzione', value: stats.maintenance, color: '#f59e0b', icon: '🔧' },
-            { label: 'Check-in oggi', value: stats.today_checkins, color: '#8b5cf6', icon: '📥' },
-            { label: 'Check-out oggi', value: stats.today_checkouts, color: '#06b6d4', icon: '📤' },
-            { label: 'Tasso occupazione', value: `${stats.occupancy_rate}%`, color: '#f59e0b', icon: '📊' },
+            { label:t('totalRooms'), value:stats.total_rooms, color:'#94a3b8', icon:'🛏️' },
+            { label:t('available'),   value:stats.available,   color:'#10b981', icon:'✅' },
+            { label:t('occupied'),      value:stats.occupied,    color:'#3b82f6', icon:'🔑' },
+            { label:t('maintenance'),  value:stats.maintenance, color:'#f59e0b', icon:'🔧' },
+            { label:t('checkinToday'), value:stats.today_checkins,  color:'#8b5cf6', icon:'📥' },
+            { label:t('checkoutToday'),value:stats.today_checkouts, color:'#06b6d4', icon:'📤' },
+            { label:t('occupancyRate'),   value:`${stats.occupancy_rate}%`, color: stats.occupancy_rate > 70 ? '#10b981' : '#f59e0b', icon:'📊' },
+            { label:t('revenue'), value:`€${stats.week_revenue.toFixed(0)}`, color:'#a855f7', icon:'💶' },
           ].map(s => (
-            <div key={s.label} style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '12px', padding: '20px' }}>
-              <div style={{ fontSize: '24px', marginBottom: '8px' }}>{s.icon}</div>
-              <div style={{ fontSize: '28px', fontWeight: '700', color: s.color }}>{s.value}</div>
-              <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px' }}>{s.label}</div>
+            <div key={s.label} style={{ background:'white', border:'1px solid #e2e8f0', borderRadius:'12px', padding:'16px 14px' }}>
+              <div style={{ fontSize:'18px', marginBottom:'6px' }}>{s.icon}</div>
+              <div style={{ fontSize:'22px', fontWeight:'700', color:s.color, lineHeight:1 }}>{s.value}</div>
+              <div style={{ fontSize:'11px', color:'#94a3b8', marginTop:'4px' }}>{s.label}</div>
             </div>
           ))}
         </div>
 
-        {/* Quick actions */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px', marginBottom: '32px' }}>
+        {/* Azioni rapide */}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px,1fr))', gap:'10px', marginBottom:'20px' }}>
           {[
-            { href: '/dashboard/hotel/nuova-prenotazione', label: 'Nuova prenotazione', icon: '➕', color: '#3b82f6' },
-            { href: '/dashboard/hotel/prenotazioni', label: 'Tutte le prenotazioni', icon: '📋', color: '#10b981' },
-            { href: '/dashboard/hotel/camere', label: 'Gestione camere', icon: '🛏️', color: '#8b5cf6' },
+            { href:'/dashboard/hotel/nuova-prenotazione', label:t('newReservation'), icon:'➕', color:'#3b82f6' },
+            { href:'/dashboard/hotel/prenotazioni',       label:t('reservations'), icon:'📋', color:'#10b981' },
+            { href:'/dashboard/hotel/camere',             label:t('rooms'), icon:'🛏️', color:'#8b5cf6' },
+            { href:'/dashboard/agenda/hotel',             label:t('agenda') + ' hotel', icon:'📆', color:'#f43f5e' },
+            { href:'/dashboard/report',                   label:'Report',        icon:'📊', color:'#a855f7' },
+            { href:'/dashboard/fatture',                  label:'Fatture',       icon:'🧾', color:'#ef4444' },
           ].map(a => (
-            <Link key={a.href} href={a.href} style={{ textDecoration: 'none' }}>
-              <div style={{
-                background: '#111118', border: `1px solid ${a.color}40`,
-                borderRadius: '12px', padding: '20px',
-                display: 'flex', alignItems: 'center', gap: '12px',
-                cursor: 'pointer', transition: 'border-color 0.2s',
-              }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = a.color)}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = `${a.color}40`)}
-              >
-                <span style={{ fontSize: '24px' }}>{a.icon}</span>
-                <span style={{ color: '#f1f1f1', fontWeight: '500', fontSize: '14px' }}>{a.label}</span>
+            <Link key={a.href} href={a.href} style={{ textDecoration:'none' }}>
+              <div style={{ background:'white', border:`1px solid ${a.color}30`, borderRadius:'10px', padding:'16px 14px', display:'flex', alignItems:'center', gap:'10px', cursor:'pointer', transition:'border-color 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = a.color}
+                onMouseLeave={e => e.currentTarget.style.borderColor = a.color+'30'}>
+                <span style={{ fontSize:'18px' }}>{a.icon}</span>
+                <span style={{ color:'#0f172a', fontSize:'13px', fontWeight:'500' }}>{a.label}</span>
               </div>
             </Link>
           ))}
         </div>
 
-        {/* Recent reservations */}
-        <div style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '16px', overflow: 'hidden' }}>
-          <div style={{ padding: '20px 24px', borderBottom: '1px solid #1f2030', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f1f1', margin: 0 }}>Prenotazioni recenti</h2>
-            <Link href="/dashboard/hotel/prenotazioni" style={{ fontSize: '13px', color: '#3b82f6', textDecoration: 'none' }}>Vedi tutte →</Link>
+        {/* Check-in/out oggi */}
+        {todayCheckins.length > 0 && (
+          <div style={{ background:'white', border:'1px solid #e2e8f0', borderRadius:'14px', overflow:'hidden', marginBottom:'20px' }}>
+            <div style={{ padding:'16px 20px', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <h2 style={{ fontSize:'14px', fontWeight:'600', color:'#0f172a', margin:0 }}>⚡ Azioni necessarie oggi</h2>
+              <span style={{ fontSize:'12px', background:'#ef444420', color:'#f87171', padding:'2px 10px', borderRadius:'12px' }}>{todayCheckins.length} movimenti</span>
+            </div>
+            <div style={{ padding:'12px 20px', display:'flex', flexDirection:'column', gap:'8px' }}>
+              {todayCheckins.map(r => {
+                const isCI = r.check_in === today && r.status === 'confirmed'
+                const c = isCI ? '#10b981' : '#3b82f6'
+                return (
+                  <div key={r.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', background:`${c}10`, border:`1px solid ${c}30`, borderRadius:'10px' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+                      <div style={{ fontSize:'16px' }}>{isCI ? '📥' : '📤'}</div>
+                      <div>
+                        <div style={{ fontSize:'14px', fontWeight:'600', color:'#0f172a' }}>
+                          {r.guest ? `${r.guest.first_name} ${r.guest.last_name}` : '—'}
+                        </div>
+                        <div style={{ fontSize:'12px', color:'#94a3b8' }}>
+                          {r.room_type?.name} · {nights(r.check_in, r.check_out)} notti · €{Number(r.total_price||0).toFixed(0)}
+                        </div>
+                      </div>
+                    </div>
+                    <Link href="/dashboard/hotel/prenotazioni" style={{ padding:'6px 14px', background:c+'20', color:c, border:`1px solid ${c}40`, borderRadius:'8px', textDecoration:'none', fontSize:'12px', fontWeight:'500' }}>
+                      {isCI ? t('checkin') + ' →' : t('checkout') + ' →'}
+                    </Link>
+                  </div>
+                )
+              })}
+            </div>
           </div>
-          {recentReservations.length === 0 ? (
-            <div style={{ padding: '40px', textAlign: 'center', color: '#6b7280' }}>
-              Nessuna prenotazione ancora. <Link href="/dashboard/hotel/nuova-prenotazione" style={{ color: '#3b82f6' }}>Crea la prima →</Link>
+        )}
+
+        {/* Prenotazioni recenti */}
+        <div style={{ background:'white', border:'1px solid #e2e8f0', borderRadius:'14px', overflow:'hidden' }}>
+          <div style={{ padding:'16px 20px', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <h2 style={{ fontSize:'14px', fontWeight:'600', color:'#0f172a', margin:0 }}>Prenotazioni recenti</h2>
+            <Link href="/dashboard/hotel/prenotazioni" style={{ fontSize:'12px', color:'#3b82f6', textDecoration:'none' }}>Vedi tutte →</Link>
+          </div>
+          {recent.length === 0 ? (
+            <div style={{ padding:'40px', textAlign:'center', color:'#94a3b8', fontSize:'13px' }}>
+              Nessuna prenotazione. <Link href="/dashboard/hotel/nuova-prenotazione" style={{ color:'#3b82f6' }}>Crea la prima →</Link>
             </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table style={{ width:'100%', borderCollapse:'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid #1f2030' }}>
-                  {['N° Prenotazione', 'Ospite', 'Camera', 'Check-in', 'Check-out', 'Stato', 'Totale'].map(h => (
-                    <th key={h} style={{ padding: '12px 24px', textAlign: 'left', fontSize: '12px', color: '#6b7280', fontWeight: '500' }}>{h}</th>
+                <tr style={{ borderBottom:'1px solid #e2e8f0' }}>
+                  {['N°', 'Ospite', 'Camera', 'Check-in', 'Check-out', 'Stato', '€'].map(h => (
+                    <th key={h} style={{ padding:'10px 16px', textAlign:'left', fontSize:'11px', color:'#94a3b8', fontWeight:'500' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {recentReservations.map((r, i) => (
-                  <tr key={r.id} style={{ borderBottom: i < recentReservations.length - 1 ? '1px solid #1f2030' : 'none' }}>
-                    <td style={{ padding: '14px 24px', fontSize: '13px', color: '#9ca3af', fontFamily: 'monospace' }}>{r.reservation_number}</td>
-                    <td style={{ padding: '14px 24px', fontSize: '13px', color: '#f1f1f1' }}>
+                {recent.slice(0,10).map((r, i) => (
+                  <tr key={r.id} style={{ borderBottom: i < 9 ? '1px solid #1f2030' : 'none' }}>
+                    <td style={{ padding:'12px 16px', fontSize:'12px', color:'#94a3b8', fontFamily:'monospace' }}>{r.reservation_number}</td>
+                    <td style={{ padding:'12px 16px', fontSize:'13px', color:'#0f172a', fontWeight:'500' }}>
                       {r.guest ? `${r.guest.first_name} ${r.guest.last_name}` : '—'}
                     </td>
-                    <td style={{ padding: '14px 24px', fontSize: '13px', color: '#9ca3af' }}>
-                      {r.room ? `Camera ${r.room.room_number}` : r.room_type?.name || '—'}
+                    <td style={{ padding:'12px 16px', fontSize:'12px', color:'#64748b' }}>{r.room_type?.name||'—'}</td>
+                    <td style={{ padding:'12px 16px', fontSize:'12px', color:'#64748b' }}>{r.check_in}</td>
+                    <td style={{ padding:'12px 16px', fontSize:'12px', color:'#64748b' }}>{r.check_out}</td>
+                    <td style={{ padding:'12px 16px' }}>
+                      <span style={{ background:`${STATUS_COLOR[r.status]||'#6b7280'}20`, color:STATUS_COLOR[r.status]||'#6b7280', padding:'2px 8px', borderRadius:'12px', fontSize:'11px', fontWeight:'500' }}>
+                        {STATUS_LABEL[r.status]||r.status}
+                      </span>
                     </td>
-                    <td style={{ padding: '14px 24px', fontSize: '13px', color: '#9ca3af' }}>{r.check_in}</td>
-                    <td style={{ padding: '14px 24px', fontSize: '13px', color: '#9ca3af' }}>{r.check_out}</td>
-                    <td style={{ padding: '14px 24px' }}>
-                      <span style={{
-                        background: `${statusColor[r.status]}20`,
-                        color: statusColor[r.status],
-                        padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: '500'
-                      }}>{statusLabel[r.status]}</span>
-                    </td>
-                    <td style={{ padding: '14px 24px', fontSize: '13px', color: '#f1f1f1', fontWeight: '500' }}>
-                      {r.total_price ? `€${Number(r.total_price).toFixed(2)}` : '—'}
+                    <td style={{ padding:'12px 16px', fontSize:'13px', color:'#0f172a', fontWeight:'600' }}>
+                      {r.total_price ? `€${Number(r.total_price).toFixed(0)}` : '—'}
                     </td>
                   </tr>
                 ))}
@@ -187,6 +179,6 @@ export default function HotelPage() {
           )}
         </div>
       </div>
-    </div>
+    </AppShell>
   )
 }

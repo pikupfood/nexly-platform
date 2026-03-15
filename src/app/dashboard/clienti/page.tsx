@@ -2,212 +2,243 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { getTenantId } from '@/lib/tenant'
 import Link from 'next/link'
+import AppShell from '@/components/AppShell'
+import { useI18n } from '@/lib/i18n-context'
+import { useStaffNav } from '@/lib/useStaffNav'
 
 export default function ClientiPage() {
   const router = useRouter()
+  const { t } = useI18n()
+  const { backHref } = useStaffNav()
   const [clients, setClients] = useState<any[]>([])
+  const [user, setUser] = useState<any>(null)
+  const [tenant, setTenant] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [showForm, setShowForm] = useState(false)
   const [selected, setSelected] = useState<any>(null)
-  const [hotelHistory, setHotelHistory] = useState<any[]>([])
-  const [form, setForm] = useState({ first_name: '', last_name: '', email: '', phone: '', nationality: '', document_type: 'passport', document_number: '', notes: '' })
+  const [history, setHistory] = useState<any>({ reservations:[], spa:[], padel:[], tableRes:[] })
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ first_name:'', last_name:'', email:'', phone:'', nationality:'', notes:'' })
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) { router.replace('/'); return }
-      loadClients()
+      load()
     })
   }, [])
 
-  const loadClients = async () => {
-    // Carica clienti dall'anagrafica unificata (guests hotel + spa + padel)
-    const [guestsRes, spaRes, padelRes] = await Promise.all([
-      supabase.from('guests').select('*').order('created_at', { ascending: false }),
-      supabase.from('spa_appointments').select('guest_name, guest_email, guest_phone, created_at').order('created_at', { ascending: false }),
-      supabase.from('padel_bookings').select('player_name, player_email, player_phone, created_at').order('created_at', { ascending: false }),
+  const load = async () => {
+    const [gRes, spaRes, padelRes] = await Promise.all([
+      supabase.from('guests').select('*').order('created_at', { ascending:false }),
+      supabase.from('spa_appointments').select('guest_name,guest_email,guest_phone,created_at,date,service:spa_services(name),price').order('created_at', { ascending:false }),
+      supabase.from('padel_bookings').select('player_name,player_email,player_phone,created_at,date,price').order('created_at', { ascending:false }),
     ])
-    // Costruisci lista unificata
-    const hotelGuests = (guestsRes.data || []).map(g => ({
-      id: g.id, source: 'hotel',
-      name: `${g.first_name} ${g.last_name}`,
-      email: g.email, phone: g.phone,
-      nationality: g.nationality,
-      created_at: g.created_at,
-    }))
-    const spaGuests = (spaRes.data || []).map((a, i) => ({
-      id: `spa-${i}`, source: 'spa',
-      name: a.guest_name, email: a.guest_email, phone: a.guest_phone,
-      created_at: a.created_at,
-    }))
-    const padelGuests = (padelRes.data || []).map((b, i) => ({
-      id: `padel-${i}`, source: 'padel',
-      name: b.player_name, email: b.player_email, phone: b.player_phone,
-      created_at: b.created_at,
-    }))
-    // Dedup per email
-    const all: any[] = []
-    const seen = new Set()
+    const hotelGuests = (gRes.data||[]).map(g => ({ id:g.id, source:'hotel', name:`${g.first_name} ${g.last_name}`, first_name:g.first_name, last_name:g.last_name, email:g.email, phone:g.phone, nationality:g.nationality, notes:g.notes, created_at:g.created_at, raw:g }))
+    const spaGuests = (spaRes.data||[]).map((a,i) => ({ id:`spa-${i}`, source:'spa', name:a.guest_name, email:a.guest_email, phone:a.guest_phone, created_at:a.created_at, raw:a }))
+    const padelGuests = (padelRes.data||[]).map((b,i) => ({ id:`padel-${i}`, source:'padel', name:b.player_name, email:b.player_email, phone:b.player_phone, created_at:b.created_at, raw:b }))
+    const all: any[] = []; const seen = new Set()
     for (const c of [...hotelGuests, ...spaGuests, ...padelGuests]) {
-      const key = c.email || c.name
-      if (!seen.has(key)) { seen.add(key); all.push(c) }
+      const key = c.email?.toLowerCase() || c.name?.toLowerCase()
+      if (key && !seen.has(key)) { seen.add(key); all.push(c) }
     }
     setClients(all)
     setLoading(false)
   }
 
-  const loadClientHistory = async (guest: any) => {
-    setSelected(guest)
-    if (guest.source === 'hotel') {
-      const { data } = await supabase.from('reservations')
-        .select('*, room_type:room_types(name)')
-        .eq('guest_id', guest.id)
-        .order('check_in', { ascending: false })
-      setHotelHistory(data || [])
-    } else {
-      setHotelHistory([])
-    }
+  const loadHistory = async (c: any) => {
+    setSelected(c)
+    if (!c.email) { setHistory({ reservations:[], spa:[], padel:[], tableRes:[] }); return }
+    const [resRes, spaRes, padelRes, tRes] = await Promise.all([
+      supabase.from('reservations').select('*, guest:guests(email), room_type:room_types(name)').eq('guest.email', c.email),
+      supabase.from('spa_appointments').select('*, service:spa_services(name)').eq('guest_email', c.email).order('date', { ascending:false }),
+      supabase.from('padel_bookings').select('*, court:padel_courts(name)').eq('player_email', c.email).order('date', { ascending:false }),
+      supabase.from('table_reservations').select('*').eq('guest_email', c.email).order('date', { ascending:false }),
+    ])
+    setHistory({ reservations:resRes.data||[], spa:spaRes.data||[], padel:padelRes.data||[], tableRes:tRes.data||[] })
   }
 
   const save = async () => {
-    const tenantId = await getTenantId()
-    const { data } = await supabase.from('guests').insert([{ ...form, tenant_id: tenantId }]).select().single()
+    if (!form.first_name || !form.last_name) return
+    setSaving(true)
+    const { data } = await supabase.from('guests').insert([form]).select().single()
     if (data) {
-      setClients(prev => [{ id: data.id, source: 'hotel', name: `${data.first_name} ${data.last_name}`, email: data.email, phone: data.phone, created_at: data.created_at }, ...prev])
+      setClients(prev => [{ id:data.id, source:'hotel', name:`${data.first_name} ${data.last_name}`, ...data, raw:data }, ...prev])
       setShowForm(false)
-      setForm({ first_name: '', last_name: '', email: '', phone: '', nationality: '', document_type: 'passport', document_number: '', notes: '' })
+      setForm({ first_name:'', last_name:'', email:'', phone:'', nationality:'', notes:'' })
     }
+    setSaving(false)
   }
 
-  const SOURCE_COLOR: Record<string, string> = { hotel: '#3b82f6', spa: '#8b5cf6', padel: '#f59e0b', ristorante: '#10b981' }
-  const STATUS_COLOR: Record<string, string> = { confirmed: '#3b82f6', checked_in: '#10b981', checked_out: '#6b7280', cancelled: '#ef4444' }
-  const STATUS_LABEL: Record<string, string> = { confirmed: 'Confermata', checked_in: 'Check-in', checked_out: 'Check-out', cancelled: 'Cancellata' }
+  const filtered = clients.filter(c => {
+    const q = search.toLowerCase()
+    return !q || c.name?.toLowerCase().includes(q) || c.email?.toLowerCase().includes(q) || c.phone?.includes(q)
+  })
 
-  const filtered = clients.filter(c => !search || c.name?.toLowerCase().includes(search.toLowerCase()) || c.email?.toLowerCase().includes(search.toLowerCase()) || c.phone?.includes(search))
-  const inputStyle = { width: '100%', padding: '10px 14px', background: '#0a0a0f', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#f1f1f1', fontSize: '14px', outline: 'none', boxSizing: 'border-box' as const }
+  const totalHistory = history.reservations.length + history.spa.length + history.padel.length + history.tableRes.length
+  const totalSpend = [
+    ...history.reservations.map((r:any) => Number(r.total_price||0)),
+    ...history.spa.map((a:any) => Number(a.price||0)),
+    ...history.padel.map((b:any) => Number(b.price||0)),
+  ].reduce((s,v) => s+v, 0)
 
-  if (loading) return <div style={{ minHeight: '100vh', background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ color: '#6b7280' }}>Caricamento...</div></div>
+  const SOURCE_ICON: Record<string,string> = { hotel:'🏨', spa:'💆', padel:'🎾' }
+  const SOURCE_COLOR: Record<string,string> = { hotel:'#3b82f6', spa:'#8b5cf6', padel:'#f59e0b' }
+
+  if (loading) return <div style={{ minHeight:'100vh', background:'white', display:'flex', alignItems:'center', justifyContent:'center' }}><div style={{ color:'#94a3b8' }}>Caricamento...</div></div>
+
+  const actions = (
+    <button onClick={()=>setShowForm(v=>!v)} style={{ padding:'7px 14px', background:'#ec4899', color:'white', borderRadius:'8px', border:'none', cursor:'pointer', fontSize:'12px', fontWeight:'600' }}>+ Nouveau client</button>
+  )
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', fontFamily: 'system-ui, sans-serif' }}>
-      <div style={{ borderBottom: '1px solid #1f2030', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <Link href="/dashboard" style={{ color: '#6b7280', textDecoration: 'none', fontSize: '14px' }}>← Dashboard</Link>
-          <span style={{ color: '#2a2a3a' }}>|</span>
-          <span style={{ fontSize: '20px' }}>👥</span>
-          <h1 style={{ fontSize: '18px', fontWeight: '600', color: '#f1f1f1', margin: 0 }}>Clienti</h1>
-          <span style={{ fontSize: '13px', color: '#6b7280' }}>{clients.length} totali</span>
-        </div>
-        <button onClick={() => setShowForm(true)} style={{ padding: '8px 16px', background: '#06b6d4', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>+ Nuovo cliente</button>
-      </div>
-
-      <div style={{ display: 'flex', minHeight: 'calc(100vh - 65px)' }}>
-        {/* Lista clienti */}
-        <div style={{ flex: 1, padding: '24px 32px', borderRight: selected ? '1px solid #1f2030' : 'none' }}>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Cerca per nome, email, telefono..." style={{ ...inputStyle, marginBottom: '20px', width: '100%', maxWidth: '400px' }} />
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {filtered.length === 0 ? (
-              <div style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '16px', padding: '60px', textAlign: 'center', color: '#6b7280' }}>
-                Nessun cliente trovato.
-              </div>
-            ) : filtered.map(c => (
-              <div key={c.id} onClick={() => loadClientHistory(c)} style={{
-                background: selected?.id === c.id ? '#1a2030' : '#111118',
-                border: `1px solid ${selected?.id === c.id ? '#06b6d4' : '#1f2030'}`,
-                borderRadius: '12px', padding: '16px 20px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-              }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '15px', fontWeight: '600', color: '#f1f1f1' }}>{c.name}</span>
-                    <span style={{ background: SOURCE_COLOR[c.source] + '20', color: SOURCE_COLOR[c.source], padding: '2px 6px', borderRadius: '6px', fontSize: '11px' }}>{c.source}</span>
-                    {c.nationality && <span style={{ fontSize: '12px', color: '#6b7280' }}>{c.nationality}</span>}
-                  </div>
-                  <div style={{ fontSize: '13px', color: '#6b7280' }}>
-                    {c.email && `✉️ ${c.email}`}{c.phone && ` · 📞 ${c.phone}`}
-                  </div>
+    <AppShell title="Clients" actions={actions} tenantName={tenant?.business_name} userEmail={user?.email}>
+      <div style={{ padding:'20px 24px' }}>
+        {/* Form nuovo cliente */}
+        {showForm && (
+          <div style={{ background:'white', border:'1px solid #e2e8f0', borderRadius:'14px', padding:'20px 24px', marginBottom:'20px' }}>
+            <h3 style={{ color:'#0f172a', fontSize:'14px', fontWeight:'600', margin:'0 0 16px' }}>Nuovo cliente</h3>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px,1fr))', gap:'10px', marginBottom:'12px' }}>
+              {[
+                { key:'first_name', label:'Nome *', ph:'Mario' },
+                { key:'last_name',  label:'Cognome *', ph:'Rossi' },
+                { key:'email',      label:'Email', ph:'mario@email.com' },
+                { key:'phone',      label:'Telefono', ph:'+39...' },
+                { key:'nationality', label:'Nazionalità', ph:'Italiano' },
+                { key:'notes',      label:'Note', ph:'Note interne...' },
+              ].map(f => (
+                <div key={f.key}>
+                  <div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'4px' }}>{f.label}</div>
+                  <input value={(form as any)[f.key]} onChange={e => setForm(p=>({...p,[f.key]:e.target.value}))} placeholder={f.ph}
+                    style={{ width:'100%', padding:'8px 10px', background:'#f1f5f9', border:'1px solid #e2e8f0', borderRadius:'7px', color:'#0f172a', fontSize:'13px', boxSizing:'border-box' }} />
                 </div>
-                <div style={{ fontSize: '12px', color: '#374151' }}>
-                  {new Date(c.created_at).toLocaleDateString('it-IT')}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Dettaglio cliente */}
-        {selected && (
-          <div style={{ width: '360px', padding: '24px', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-              <div>
-                <div style={{ fontSize: '20px', fontWeight: '700', color: '#f1f1f1' }}>{selected.name}</div>
-                <span style={{ background: SOURCE_COLOR[selected.source] + '20', color: SOURCE_COLOR[selected.source], padding: '2px 8px', borderRadius: '6px', fontSize: '12px' }}>{selected.source}</span>
-              </div>
-              <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '18px' }}>✕</button>
+              ))}
             </div>
-
-            <div style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '12px', padding: '16px', marginBottom: '20px' }}>
-              {selected.email && <div style={{ fontSize: '13px', color: '#9ca3af', marginBottom: '8px' }}>✉️ {selected.email}</div>}
-              {selected.phone && <div style={{ fontSize: '13px', color: '#9ca3af', marginBottom: '8px' }}>📞 {selected.phone}</div>}
-              {selected.nationality && <div style={{ fontSize: '13px', color: '#9ca3af' }}>🌍 {selected.nationality}</div>}
+            <div style={{ display:'flex', gap:'8px' }}>
+              <button onClick={save} disabled={!form.first_name||!form.last_name||saving} style={{ padding:'8px 18px', background: form.first_name&&form.last_name?'#ec4899':'#374151', color:'white', border:'none', borderRadius:'8px', cursor:'pointer', fontSize:'13px' }}>
+                {saving ? 'Salvataggio...' : '✓ Salva'}
+              </button>
+              <button onClick={()=>setShowForm(false)} style={{ padding:'8px 16px', background:'none', border:'1px solid #e2e8f0', color:'#94a3b8', borderRadius:'8px', cursor:'pointer', fontSize:'13px' }}>Annulla</button>
             </div>
-
-            {hotelHistory.length > 0 && (
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: '600', color: '#9ca3af', marginBottom: '12px' }}>SOGGIORNI HOTEL ({hotelHistory.length})</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {hotelHistory.map(r => (
-                    <div key={r.id} style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '10px', padding: '12px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                        <span style={{ fontSize: '13px', color: '#f1f1f1' }}>{r.room_type?.name}</span>
-                        <span style={{ background: (STATUS_COLOR[r.status] || '#6b7280') + '20', color: STATUS_COLOR[r.status] || '#6b7280', padding: '2px 6px', borderRadius: '6px', fontSize: '11px' }}>{STATUS_LABEL[r.status] || r.status}</span>
-                      </div>
-                      <div style={{ fontSize: '12px', color: '#6b7280' }}>{r.check_in} → {r.check_out}</div>
-                      {r.total_price && <div style={{ fontSize: '13px', color: '#3b82f6', fontWeight: '500', marginTop: '4px' }}>€{Number(r.total_price).toFixed(2)}</div>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {hotelHistory.length === 0 && selected.source !== 'hotel' && (
-              <div style={{ color: '#6b7280', fontSize: '13px', textAlign: 'center', padding: '20px' }}>
-                Nessuno storico soggiorni per questo cliente.
-              </div>
-            )}
           </div>
         )}
-      </div>
 
-      {showForm && (
-        <div style={{ position: 'fixed', inset: 0, background: '#000000aa', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ background: '#111118', border: '1px solid #2a2a3a', borderRadius: '16px', padding: '32px', width: '500px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f1f1', marginTop: 0, marginBottom: '24px' }}>Nuovo Cliente</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-              <div><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Nome *</label><input style={inputStyle} value={form.first_name} onChange={e => setForm({ ...form, first_name: e.target.value })} /></div>
-              <div><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Cognome *</label><input style={inputStyle} value={form.last_name} onChange={e => setForm({ ...form, last_name: e.target.value })} /></div>
-              <div><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Email</label><input style={inputStyle} type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} /></div>
-              <div><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Telefono</label><input style={inputStyle} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} /></div>
-              <div><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Nazionalità</label><input style={inputStyle} value={form.nationality} onChange={e => setForm({ ...form, nationality: e.target.value })} /></div>
-              <div><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Documento</label>
-                <select style={inputStyle} value={form.document_type} onChange={e => setForm({ ...form, document_type: e.target.value })}>
-                  <option value="passport">Passaporto</option>
-                  <option value="id_card">Carta d'identità</option>
-                  <option value="driving_license">Patente</option>
-                </select>
-              </div>
-              <div style={{ gridColumn: '1/-1' }}><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Numero documento</label><input style={inputStyle} value={form.document_number} onChange={e => setForm({ ...form, document_number: e.target.value })} /></div>
-              <div style={{ gridColumn: '1/-1' }}><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Note</label><input style={inputStyle} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></div>
+        <div style={{ display:'grid', gridTemplateColumns: selected ? '1fr 1fr' : '1fr', gap:'16px' }}>
+          {/* Lista clienti */}
+          <div>
+            <div style={{ display:'flex', gap:'10px', marginBottom:'12px', alignItems:'center' }}>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Cerca per nome, email, telefono..." style={{ flex:1, padding:'8px 12px', background:'white', border:'1px solid #e2e8f0', borderRadius:'8px', color:'#0f172a', fontSize:'13px', outline:'none' }} />
+              {search && <button onClick={()=>setSearch('')} style={{ padding:'7px 10px', background:'none', border:'1px solid #e2e8f0', color:'#94a3b8', borderRadius:'7px', cursor:'pointer', fontSize:'12px' }}>✕</button>}
             </div>
-            <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
-              <button onClick={() => setShowForm(false)} style={{ flex: 1, padding: '10px', background: '#1f2030', color: '#9ca3af', border: '1px solid #2a2a3a', borderRadius: '8px', cursor: 'pointer' }}>Annulla</button>
-              <button onClick={save} disabled={!form.first_name || !form.last_name} style={{ flex: 1, padding: '10px', background: '#06b6d4', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '500' }}>Salva</button>
+            <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
+              {filtered.slice(0,30).map(c => (
+                <div key={c.id} onClick={()=>loadHistory(c)}
+                  style={{ background: selected?.id===c.id ? '#1a2a3a' : '#111118', border:`1px solid ${selected?.id===c.id?'#3b82f6':'#1f2030'}`, borderRadius:'10px', padding:'12px 16px', cursor:'pointer', transition:'all 0.1s', display:'flex', justifyContent:'space-between', alignItems:'center' }}
+                  onMouseEnter={e => { if(selected?.id!==c.id) e.currentTarget.style.borderColor='#2a2a3a' }}
+                  onMouseLeave={e => { if(selected?.id!==c.id) e.currentTarget.style.borderColor='#1f2030' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+                    <div style={{ width:'36px', height:'36px', borderRadius:'50%', background: SOURCE_COLOR[c.source]+'30', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'14px', fontWeight:'700', color: SOURCE_COLOR[c.source], flexShrink:0 }}>
+                      {(c.name||'?').charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <div style={{ fontSize:'14px', fontWeight:'600', color:'#0f172a' }}>{c.name||'—'}</div>
+                      <div style={{ fontSize:'11px', color:'#94a3b8' }}>
+                        {c.email && <span>{c.email}</span>}
+                        {c.phone && <span style={{ marginLeft:'8px' }}>{c.phone}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <span style={{ fontSize:'10px', background: SOURCE_COLOR[c.source]+'20', color: SOURCE_COLOR[c.source], padding:'2px 7px', borderRadius:'8px' }}>
+                    {SOURCE_ICON[c.source]} {c.source}
+                  </span>
+                </div>
+              ))}
+              {filtered.length > 30 && <div style={{ textAlign:'center', color:'#94a3b8', fontSize:'12px', padding:'8px' }}>+{filtered.length-30} altri risultati</div>}
+              {filtered.length === 0 && <div style={{ textAlign:'center', color:'#94a3b8', fontSize:'13px', padding:'30px' }}>Nessun cliente trovato</div>}
             </div>
           </div>
+
+          {/* Scheda cliente */}
+          {selected && (
+            <div style={{ background:'white', border:'1px solid #e2e8f0', borderRadius:'14px', overflow:'hidden', alignSelf:'flex-start', position:'sticky', top:'70px' }}>
+              <div style={{ padding:'16px 20px', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
+                  <div style={{ width:'40px', height:'40px', borderRadius:'50%', background: SOURCE_COLOR[selected.source]+'30', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'16px', fontWeight:'700', color: SOURCE_COLOR[selected.source] }}>
+                    {(selected.name||'?').charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div style={{ fontSize:'15px', fontWeight:'700', color:'#0f172a' }}>{selected.name}</div>
+                    <div style={{ fontSize:'11px', color:'#94a3b8' }}>{selected.nationality||''}</div>
+                  </div>
+                </div>
+                <button onClick={()=>setSelected(null)} style={{ background:'none', border:'none', color:'#94a3b8', cursor:'pointer', fontSize:'18px' }}>✕</button>
+              </div>
+
+              {/* Info contatto */}
+              <div style={{ padding:'14px 20px', borderBottom:'1px solid #e2e8f0', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }}>
+                {[
+                  { label:'Email', value: selected.email },
+                  { label:'Telefono', value: selected.phone },
+                  { label:'Nazionalità', value: selected.nationality },
+                  { label:'Note', value: selected.notes },
+                ].filter(f => f.value).map(f => (
+                  <div key={f.label}>
+                    <div style={{ fontSize:'10px', color:'#94a3b8', marginBottom:'2px' }}>{f.label}</div>
+                    <div style={{ fontSize:'12px', color:'#d1d5db' }}>{f.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* KPI cliente */}
+              <div style={{ padding:'12px 20px', borderBottom:'1px solid #e2e8f0', display:'flex', gap:'16px' }}>
+                <div style={{ textAlign:'center' }}>
+                  <div style={{ fontSize:'18px', fontWeight:'700', color:'#ec4899' }}>{totalHistory}</div>
+                  <div style={{ fontSize:'10px', color:'#94a3b8' }}>Prenotazioni</div>
+                </div>
+                <div style={{ textAlign:'center' }}>
+                  <div style={{ fontSize:'18px', fontWeight:'700', color:'#10b981' }}>€{totalSpend.toFixed(0)}</div>
+                  <div style={{ fontSize:'10px', color:'#94a3b8' }}>Totale speso</div>
+                </div>
+                {history.reservations.length > 0 && (
+                  <div style={{ textAlign:'center' }}>
+                    <div style={{ fontSize:'18px', fontWeight:'700', color:'#3b82f6' }}>{history.reservations.length}</div>
+                    <div style={{ fontSize:'10px', color:'#94a3b8' }}>Soggiorni</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Storico */}
+              <div style={{ padding:'12px 20px', maxHeight:'320px', overflowY:'auto' }}>
+                {[
+                  ...history.reservations.map((r:any) => ({ icon:'🏨', color:'#3b82f6', text:`${r.room_type?.name||'Camera'} · ${r.check_in} → ${r.check_out}`, amount:r.total_price, status:r.status })),
+                  ...history.spa.map((a:any) => ({ icon:'💆', color:'#8b5cf6', text:`${a.service?.name||'Spa'} · ${a.date}`, amount:a.price, status:a.status })),
+                  ...history.padel.map((b:any) => ({ icon:'🎾', color:'#f59e0b', text:`${b.court?.name||'Padel'} · ${b.date} ${String(b.start_time).slice(0,5)}`, amount:b.price, status:b.status })),
+                  ...history.tableRes.map((t:any) => ({ icon:'🍽️', color:'#10b981', text:`Tavolo ${t.date} ${String(t.time).slice(0,5)} · ${t.guests_count} pers.`, amount:null, status:t.status })),
+                ].length === 0 ? (
+                  <div style={{ color:'#94a3b8', fontSize:'12px', textAlign:'center', padding:'16px' }}>Nessuna attività registrata</div>
+                ) : (
+                  <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
+                    {[
+                      ...history.reservations.map((r:any) => ({ icon:'🏨', color:'#3b82f6', text:`${r.room_type?.name||'Camera'} · ${r.check_in} → ${r.check_out}`, amount:r.total_price, status:r.status })),
+                      ...history.spa.map((a:any) => ({ icon:'💆', color:'#8b5cf6', text:`${a.service?.name||'Spa'} · ${a.date}`, amount:a.price, status:a.status })),
+                      ...history.padel.map((b:any) => ({ icon:'🎾', color:'#f59e0b', text:`${b.court?.name||'Padel'} · ${b.date}`, amount:b.price, status:b.status })),
+                    ].map((item, i) => (
+                      <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 10px', background:`${item.color}10`, border:`1px solid ${item.color}25`, borderRadius:'8px' }}>
+                        <div style={{ display:'flex', gap:'8px', alignItems:'center' }}>
+                          <span style={{ fontSize:'14px' }}>{item.icon}</span>
+                          <span style={{ fontSize:'12px', color:'#d1d5db' }}>{item.text}</span>
+                        </div>
+                        {item.amount && <span style={{ fontSize:'12px', fontWeight:'600', color:item.color }}>€{Number(item.amount).toFixed(0)}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
-      )}
-    </div>
+      </div>
+    </AppShell>
   )
 }

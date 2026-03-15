@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getTenantId } from '@/lib/tenant'
 import Link from 'next/link'
+import { useStaffNav } from '@/lib/useStaffNav'
 
 export default function NuovaPrenotazionePage() {
   const router = useRouter()
+  const { backHref } = useStaffNav()
   const [roomTypes, setRoomTypes] = useState<any[]>([])
   const [availableRooms, setAvailableRooms] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -92,21 +94,21 @@ export default function NuovaPrenotazionePage() {
   }
 
   const inputStyle = {
-    width: '100%', padding: '10px 14px', background: '#0a0a0f',
+    width: '100%', padding: '10px 14px', background: 'white',
     border: '1px solid #2a2a3a', borderRadius: '8px', color: '#f1f1f1',
-    fontSize: '14px', outline: 'none', boxSizing: 'border-box' as const
+    fontSize: '14px', outline: 'none', boxSizing: 'border-box'
   }
   const labelStyle = { display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: 'white', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ borderBottom: '1px solid #1f2030', padding: '16px 32px', display: 'flex', alignItems: 'center', gap: '16px' }}>
         <Link href="/dashboard/hotel/prenotazioni" style={{ color: '#6b7280', textDecoration: 'none', fontSize: '14px' }}>← Prenotazioni</Link>
         <span style={{ color: '#2a2a3a' }}>|</span>
         <h1 style={{ fontSize: '18px', fontWeight: '600', color: '#f1f1f1', margin: 0 }}>➕ Nuova Prenotazione</h1>
       </div>
 
-      <div style={{ padding: '32px', maxWidth: '900px', margin: '0 auto' }}>
+      <div style={{ padding: '20px 24px', maxWidth: '900px', margin: '0 auto' }}>
         {/* Steps indicator */}
         <div style={{ display: 'flex', gap: '0', marginBottom: '40px' }}>
           {[{ n: 1, label: 'Dati Ospite' }, { n: 2, label: 'Soggiorno' }, { n: 3, label: 'Conferma' }].map((s, i) => (
@@ -128,7 +130,7 @@ export default function NuovaPrenotazionePage() {
 
         {/* Step 1: Ospite */}
         {step === 1 && (
-          <div style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '16px', padding: '32px' }}>
+          <div style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '16px', padding: '20px 24px' }}>
             <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f1f1', marginBottom: '24px', marginTop: 0 }}>👤 Dati Ospite</h2>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
               <div>
@@ -176,7 +178,7 @@ export default function NuovaPrenotazionePage() {
 
         {/* Step 2: Soggiorno */}
         {step === 2 && (
-          <div style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '16px', padding: '32px' }}>
+          <div style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '16px', padding: '20px 24px' }}>
             <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f1f1', marginBottom: '24px', marginTop: 0 }}>🛏️ Dettagli Soggiorno</h2>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
               <div>
@@ -265,17 +267,17 @@ export default function NuovaPrenotazionePage() {
 
         {/* Step 3: Conferma */}
         {step === 3 && (
-          <div style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '16px', padding: '32px' }}>
+          <div style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '16px', padding: '20px 24px' }}>
             <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f1f1', marginBottom: '24px', marginTop: 0 }}>✅ Riepilogo Prenotazione</h2>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '24px' }}>
-              <div style={{ background: '#0a0a0f', borderRadius: '12px', padding: '20px' }}>
+              <div style={{ background: 'white', borderRadius: '12px', padding: '20px' }}>
                 <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '12px', fontWeight: '500' }}>OSPITE</div>
                 <div style={{ fontSize: '16px', fontWeight: '600', color: '#f1f1f1' }}>{guest.first_name} {guest.last_name}</div>
                 {guest.email && <div style={{ fontSize: '13px', color: '#9ca3af', marginTop: '4px' }}>{guest.email}</div>}
                 {guest.phone && <div style={{ fontSize: '13px', color: '#9ca3af' }}>{guest.phone}</div>}
               </div>
-              <div style={{ background: '#0a0a0f', borderRadius: '12px', padding: '20px' }}>
+              <div style={{ background: 'white', borderRadius: '12px', padding: '20px' }}>
                 <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '12px', fontWeight: '500' }}>SOGGIORNO</div>
                 <div style={{ fontSize: '14px', color: '#f1f1f1' }}>
                   {booking.check_in} → {booking.check_out}

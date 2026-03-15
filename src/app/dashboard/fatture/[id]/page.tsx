@@ -42,12 +42,12 @@ export default function FatturaDetailPage() {
     cancelled: { label: 'Annullata', color: '#ef4444' },
   }
 
-  if (loading || !invoice) return <div style={{ minHeight: '100vh', background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ color: '#6b7280' }}>Caricamento...</div></div>
+  if (loading || !invoice) return <div style={{ minHeight: '100vh', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ color: '#6b7280' }}>Caricamento...</div></div>
 
   const sc = SC[invoice.status]
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: 'white', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ borderBottom: '1px solid #1f2030', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <Link href="/dashboard/fatture" style={{ color: '#6b7280', textDecoration: 'none', fontSize: '14px' }}>← Fatture</Link>
@@ -62,8 +62,8 @@ export default function FatturaDetailPage() {
         </div>
       </div>
 
-      <div style={{ padding: '32px', maxWidth: '800px', margin: '0 auto' }}>
-        <div style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '16px', padding: '32px' }}>
+      <div style={{ padding: '20px 24px', maxWidth: '800px', margin: '0 auto' }}>
+        <div style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '16px', padding: '20px 24px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', marginBottom: '32px' }}>
             <div>
               <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '8px' }}>ÉMETTEUR</div>

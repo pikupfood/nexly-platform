@@ -2,146 +2,187 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { getTenantId } from '@/lib/tenant'
 import Link from 'next/link'
-import { autoGenerateInvoice } from '@/lib/autoInvoice'
+import { useStaffNav } from '@/lib/useStaffNav'
 import PaymentModal from '@/components/PaymentModal'
+import { autoGenerateInvoice } from '@/lib/autoInvoice'
 
-const SC: Record<string, { label: string; color: string }> = {
-  confirmed:   { label: 'Confermata', color: '#3b82f6' },
-  in_progress: { label: 'In corso',   color: '#f59e0b' },
-  completed:   { label: 'Completata', color: '#10b981' },
-  cancelled:   { label: 'Cancellata', color: '#ef4444' },
+const SC: Record<string,{label:string;color:string}> = {
+  confirmed:   { label:'Confermata', color:'#3b82f6' },
+  in_progress: { label:'In corso',   color:'#f59e0b' },
+  completed:   { label:'Completata', color:'#10b981' },
+  cancelled:   { label:'Cancellata', color:'#ef4444' },
 }
 
 export default function PadelPrenotazioniPage() {
   const router = useRouter()
+  const { backHref } = useStaffNav()
   const [bookings, setBookings] = useState<any[]>([])
   const [courts, setCourts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState('upcoming')
+  const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
-  const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0])
-  const [form, setForm] = useState({ player_name: '', player_phone: '', player_email: '', court_id: '', date: new Date().toISOString().split('T')[0], start_time: '09:00', end_time: '10:30', players_count: 4, notes: '' })
-  const [paymentModal, setPaymentModal] = useState<{ bookingId: string } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [paymentModal, setPaymentModal] = useState<any>(null)
+  const today = new Date().toISOString().split('T')[0]
+
+  const EMPTY = { court_id:'', player_name:'', player_phone:'', player_email:'', date:today, start_time:'09:00', players_count:4 }
+  const [form, setForm] = useState<any>(EMPTY)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) { router.replace('/'); return }
-      loadData()
+      load()
     })
   }, [])
 
-  const loadData = async () => {
-    const [bookRes, courtRes] = await Promise.all([
-      supabase.from('padel_bookings').select('*, court:padel_courts(name, price_per_hour)').order('date').order('start_time'),
+  const load = async () => {
+    const [bRes, cRes] = await Promise.all([
+      supabase.from('padel_bookings').select('*, court:padel_courts(name,price_per_hour,slot_duration)').order('date', { ascending:false }).order('start_time'),
       supabase.from('padel_courts').select('*').eq('is_active', true).order('name'),
     ])
-    setBookings(bookRes.data || [])
-    setCourts(courtRes.data || [])
+    setBookings(bRes.data||[])
+    setCourts(cRes.data||[])
     setLoading(false)
   }
 
+  const calcEndTime = (start: string, duration: number) => {
+    const [h,m] = start.split(':').map(Number)
+    const end = h*60+m+duration
+    return `${Math.floor(end/60).toString().padStart(2,'0')}:${(end%60).toString().padStart(2,'0')}`
+  }
+
   const save = async () => {
-    const tenantId = await getTenantId()
+    if (!form.court_id||!form.player_name||!form.date) return
+    setSaving(true)
     const court = courts.find(c => c.id === form.court_id)
-    const hours = court ? (new Date(`2000-01-01T${form.end_time}`).getTime() - new Date(`2000-01-01T${form.start_time}`).getTime()) / 3600000 : 0
-    const price = court ? hours * court.price_per_hour : null
-    const { data } = await supabase.from('padel_bookings').insert([{ ...form, price, tenant_id: tenantId }]).select('*, court:padel_courts(name, price_per_hour)').single()
-    if (data) { setBookings(prev => [...prev, data].sort((a, b) => a.date.localeCompare(b.date))); setShowForm(false) }
+    const duration = court?.slot_duration||90
+    const end_time = calcEndTime(form.start_time, duration)
+    const price = (court?.price_per_hour||0) * (duration/60)
+    const { data, error } = await supabase.from('padel_bookings').insert([{ ...form, end_time, price, status:'confirmed' }]).select('*, court:padel_courts(name,price_per_hour,slot_duration)').single()
+    if (!error && data) { setBookings(prev => [data, ...prev]); setShowForm(false); setForm(EMPTY) }
+    else if (error) alert('Erreur: ' + error.message)
+    setSaving(false)
   }
 
-  const updateStatus = async (id: string, status: string) => {
-    if (status === 'completed') {
-      setPaymentModal({ bookingId: id })
-      return
-    }
-    await supabase.from('padel_bookings').update({ status }).eq('id', id)
-    setBookings(prev => prev.map(b => b.id === id ? { ...b, status } : b))
+  const updateStatus = async (id: string, newStatus: string) => {
+    const bk = bookings.find(b => b.id === id)
+    if (newStatus === 'completed') { setPaymentModal({ id, bk }); return }
+    await supabase.from('padel_bookings').update({ status:newStatus }).eq('id', id)
+    setBookings(prev => prev.map(b => b.id===id ? {...b,status:newStatus} : b))
   }
 
-  const handlePaymentConfirm = async (payment: { method: string; note: string; isComplimentary: boolean }) => {
+  const handlePayment = async (payment: any) => {
     if (!paymentModal) return
-    const id = paymentModal.bookingId
-    const b = bookings.find(x => x.id === id)
+    const { id, bk } = paymentModal
     setPaymentModal(null)
-
-    await supabase.from('padel_bookings').update({
-      status: 'completed',
-      payment_method: payment.method,
-      payment_note: payment.note || null,
-      is_complimentary: payment.isComplimentary,
-    }).eq('id', id)
-    setBookings(prev => prev.map(x => x.id === id ? { ...x, status: 'completed' } : x))
-
-    if (b) {
-      const hrs = (new Date(`2000-01-01T${b.end_time}`).getTime() - new Date(`2000-01-01T${b.start_time}`).getTime()) / 3600000
-      const nameParts = (b.player_name || 'Giocatore').split(' ')
-      await autoGenerateInvoice({
-        source: 'padel', sourceId: id,
-        clientFirstName: nameParts[0] || 'Giocatore',
-        clientLastName: nameParts.slice(1).join(' ') || '',
-        clientEmail: b.player_email, clientPhone: b.player_phone,
-        items: [{ description: `Padel — ${b.court?.name} — ${b.date} ${b.start_time?.slice(0,5)}-${b.end_time?.slice(0,5)} (${hrs}h)`, quantity: 1, unit_price: Number(b.price || 0), tax_rate: 20 }],
-        taxRate: 20, paymentMethod: payment.method, paymentNote: payment.note,
-        isComplimentary: payment.isComplimentary,
-        router,
-      })
-    }
+    await supabase.from('padel_bookings').update({ status:'completed', payment_method:payment.method, payment_note:payment.note||null, is_complimentary:payment.isComplimentary }).eq('id', id)
+    setBookings(prev => prev.map(b => b.id===id ? {...b,status:'completed'} : b))
+    if (bk) await autoGenerateInvoice({ source:'padel', sourceId:id, clientFirstName:bk.player_name||'Giocatore', clientLastName:'', clientEmail:bk.player_email, clientPhone:bk.player_phone, items:[{ description:`${bk.court?.name||'Campo padel'} · ${bk.date} ${bk.start_time?.slice(0,5)}-${bk.end_time?.slice(0,5)}`, quantity:1, unit_price:Number(bk.price||0), tax_rate:10 }], taxRate:10, paymentMethod:payment.method, paymentNote:payment.note, isComplimentary:payment.isComplimentary, router })
   }
 
-  const filtered = bookings.filter(b => !dateFilter || b.date === dateFilter)
-  const inputStyle = { width: '100%', padding: '10px 14px', background: '#0a0a0f', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#f1f1f1', fontSize: '14px', outline: 'none', boxSizing: 'border-box' as const }
+  const filtered = bookings.filter(b => {
+    const mF = filter==='upcoming'?(b.date>=today&&['confirmed','in_progress'].includes(b.status)):filter==='today'?(b.date===today):filter==='all'?true:(b.status===filter)
+    const mS = !search || b.player_name?.toLowerCase().includes(search.toLowerCase()) || b.player_email?.includes(search)
+    return mF && mS
+  })
 
-  if (loading) return <div style={{ minHeight: '100vh', background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ color: '#6b7280' }}>Caricamento...</div></div>
+  const IS: any = { padding:'8px 10px', background:'#f1f5f9', border:'1px solid #e2e8f0', borderRadius:'7px', color:'#0f172a', fontSize:'13px', width:'100%', boxSizing:'border-box', outline:'none' }
+  const LS: any = { fontSize:'11px', color:'#94a3b8', marginBottom:'4px', display:'block' }
+
+  if (loading) return <div style={{ minHeight:'100vh', background:'white', display:'flex', alignItems:'center', justifyContent:'center' }}><div style={{ color:'#94a3b8' }}>Caricamento...</div></div>
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', fontFamily: 'system-ui, sans-serif' }}>
-      <div style={{ borderBottom: '1px solid #1f2030', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <Link href="/dashboard/padel" style={{ color: '#6b7280', textDecoration: 'none', fontSize: '14px' }}>← Padel</Link>
-          <span style={{ color: '#2a2a3a' }}>|</span>
-          <h1 style={{ fontSize: '18px', fontWeight: '600', color: '#f1f1f1', margin: 0 }}>📋 Prenotazioni Padel</h1>
+    <div style={{ minHeight:'100vh', background:'white', fontFamily:'system-ui,sans-serif' }}>
+      <div style={{ borderBottom:'1px solid #e2e8f0', padding:'14px 32px', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, background:'white', zIndex:10 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'14px' }}>
+          <Link href="/dashboard/padel" style={{ color:'#94a3b8', textDecoration:'none', fontSize:'13px' }}>← Padel</Link>
+          <span style={{ color:'#2a2a3a' }}>|</span>
+          <h1 style={{ fontSize:'17px', fontWeight:'600', color:'#0f172a', margin:0 }}>🎾 Prenotazioni padel</h1>
         </div>
-        <button onClick={() => setShowForm(true)} style={{ padding: '8px 16px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>+ Nuova</button>
+        <button onClick={()=>setShowForm(v=>!v)} style={{ padding:'8px 16px', background:'#f59e0b', color:'white', borderRadius:'8px', border:'none', cursor:'pointer', fontSize:'13px', fontWeight:'500' }}>
+          {showForm ? '✕ Annulla' : '+ Nuova prenotazione'}
+        </button>
       </div>
 
-      <div style={{ padding: '32px' }}>
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', alignItems: 'center' }}>
-          <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} style={{ padding: '8px 14px', background: '#111118', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#f1f1f1', fontSize: '14px' }} />
-          <button onClick={() => setDateFilter('')} style={{ padding: '8px 14px', background: '#111118', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#9ca3af', cursor: 'pointer', fontSize: '13px' }}>Tutte le date</button>
-          <span style={{ color: '#6b7280', fontSize: '14px' }}>{filtered.length} prenotazioni</span>
+      <div style={{ padding:'20px 24px' }}>
+        {showForm && (
+          <div style={{ background:'white', border:'1px solid #e2e8f0', borderRadius:'14px', padding:'20px 24px', marginBottom:'20px' }}>
+            <h3 style={{ color:'#0f172a', fontSize:'14px', fontWeight:'600', margin:'0 0 16px' }}>Nuova prenotazione</h3>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px,1fr))', gap:'12px', marginBottom:'14px' }}>
+              <div><label style={LS}>Campo *</label>
+                <select style={IS} value={form.court_id} onChange={e=>setForm((p:any)=>({...p,court_id:e.target.value}))}>
+                  <option value="">Seleziona campo...</option>
+                  {courts.map(c => <option key={c.id} value={c.id}>{c.name} · €{c.price_per_hour}/h</option>)}
+                </select>
+              </div>
+              <div><label style={LS}>Nome giocatore *</label><input style={IS} value={form.player_name} onChange={e=>setForm((p:any)=>({...p,player_name:e.target.value}))} placeholder="Mario Rossi" /></div>
+              <div><label style={LS}>Telefono</label><input style={IS} value={form.player_phone} onChange={e=>setForm((p:any)=>({...p,player_phone:e.target.value}))} placeholder="+39..." /></div>
+              <div><label style={LS}>Email</label><input style={IS} value={form.player_email} onChange={e=>setForm((p:any)=>({...p,player_email:e.target.value}))} placeholder="email@..." /></div>
+              <div><label style={LS}>Data *</label><input type="date" style={IS} value={form.date} onChange={e=>setForm((p:any)=>({...p,date:e.target.value}))} /></div>
+              <div><label style={LS}>Orario *</label><input type="time" style={IS} value={form.start_time} onChange={e=>setForm((p:any)=>({...p,start_time:e.target.value}))} /></div>
+              <div><label style={LS}>Numero giocatori</label>
+                <select style={IS} value={form.players_count} onChange={e=>setForm((p:any)=>({...p,players_count:parseInt(e.target.value)}))}>
+                  {[2,3,4].map(n => <option key={n} value={n}>{n} giocatori</option>)}
+                </select>
+              </div>
+            </div>
+            {form.court_id && (
+              <div style={{ padding:'8px 12px', background:'#f59e0b20', border:'1px solid #f59e0b40', borderRadius:'8px', marginBottom:'12px', fontSize:'12px', color:'#fbbf24' }}>
+                ⏱️ {courts.find(c=>c.id===form.court_id)?.slot_duration||90} min · Fine: {calcEndTime(form.start_time, courts.find(c=>c.id===form.court_id)?.slot_duration||90)} · 
+                <strong> €{((courts.find(c=>c.id===form.court_id)?.price_per_hour||0)*((courts.find(c=>c.id===form.court_id)?.slot_duration||90)/60)).toFixed(0)}</strong>
+              </div>
+            )}
+            <button onClick={save} disabled={!form.court_id||!form.player_name||!form.date||saving} style={{ padding:'8px 18px', background:form.court_id&&form.player_name&&form.date?'#f59e0b':'#374151', color:'white', border:'none', borderRadius:'8px', cursor:'pointer', fontSize:'13px' }}>
+              {saving?'Salvataggio...':'✓ Conferma prenotazione'}
+            </button>
+          </div>
+        )}
+
+        {/* Filtri */}
+        <div style={{ display:'flex', gap:'8px', marginBottom:'16px', flexWrap:'wrap', alignItems:'center' }}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Cerca giocatore..." style={{ padding:'7px 12px', background:'white', border:'1px solid #e2e8f0', borderRadius:'8px', color:'#0f172a', fontSize:'13px', outline:'none', width:'180px' }} />
+          {['upcoming','today','all','completed','cancelled'].map(f => (
+            <button key={f} onClick={()=>setFilter(f)} style={{ padding:'6px 12px', borderRadius:'7px', border:'none', cursor:'pointer', fontSize:'12px', background:filter===f?'#f59e0b':'#111118', color:filter===f?'white':'#9ca3af', outline:`1px solid ${filter===f?'#f59e0b':'#1f2030'}` }}>
+              {f==='upcoming'?'Prossime':f==='today'?'Oggi':f==='all'?'Tutte':SC[f]?.label||f}
+            </button>
+          ))}
+          <span style={{ fontSize:'12px', color:'#94a3b8', marginLeft:'auto' }}>{filtered.length} risultati</span>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
           {filtered.length === 0 ? (
-            <div style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '16px', padding: '60px', textAlign: 'center', color: '#6b7280' }}>
-              Nessuna prenotazione. <button onClick={() => setShowForm(true)} style={{ color: '#f59e0b', background: 'none', border: 'none', cursor: 'pointer' }}>Crea la prima →</button>
+            <div style={{ background:'white', border:'1px solid #e2e8f0', borderRadius:'14px', padding:'60px', textAlign:'center', color:'#94a3b8', fontSize:'13px' }}>
+              Nessuna prenotazione. <button onClick={()=>setShowForm(true)} style={{ background:'none', border:'none', color:'#f59e0b', cursor:'pointer', fontSize:'13px' }}>Crea la prima →</button>
             </div>
           ) : filtered.map(b => {
             const sc = SC[b.status]
-            const hours = (new Date(`2000-01-01T${b.end_time}`).getTime() - new Date(`2000-01-01T${b.start_time}`).getTime()) / 3600000
             return (
-              <div key={b.id} style={{ background: '#111118', border: '1px solid #1f2030', borderRadius: '14px', padding: '18px 24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+              <div key={b.id} style={{ background:'white', border:'1px solid #e2e8f0', borderRadius:'12px', padding:'16px 20px' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:'10px' }}>
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-                      <span style={{ fontSize: '17px', fontWeight: '600', color: '#f1f1f1' }}>{b.player_name}</span>
-                      <span style={{ background: sc.color + '20', color: sc.color, padding: '2px 8px', borderRadius: '12px', fontSize: '12px' }}>{sc.label}</span>
+                    <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'4px' }}>
+                      <span style={{ fontSize:'15px', fontWeight:'700', color:'#0f172a' }}>{b.player_name}</span>
+                      <span style={{ background:sc.color+'20', color:sc.color, padding:'2px 8px', borderRadius:'12px', fontSize:'11px', fontWeight:'500' }}>{sc.label}</span>
                     </div>
-                    <div style={{ fontSize: '14px', color: '#f59e0b', fontWeight: '500' }}>{b.court?.name}</div>
-                    <div style={{ fontSize: '13px', color: '#6b7280' }}>{b.players_count} giocatori · {hours}h</div>
+                    <div style={{ fontSize:'13px', color:'#94a3b8' }}>
+                      {b.court?.name} · {b.players_count} giocatori · {b.date} · {String(b.start_time).slice(0,5)} – {String(b.end_time).slice(0,5)}
+                    </div>
+                    {(b.player_phone||b.player_email) && <div style={{ fontSize:'12px', color:'#94a3b8', marginTop:'2px' }}>{b.player_phone} {b.player_email}</div>}
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '18px', fontWeight: '700', color: '#f59e0b' }}>{b.start_time?.slice(0,5)} - {b.end_time?.slice(0,5)}</div>
-                    <div style={{ fontSize: '13px', color: '#6b7280' }}>{b.date}</div>
-                    {b.price && <div style={{ fontSize: '14px', color: '#f1f1f1', fontWeight: '500' }}>€{Number(b.price).toFixed(2)}</div>}
+                  <div style={{ textAlign:'right' }}>
+                    <div style={{ fontSize:'18px', fontWeight:'700', color:'#f59e0b' }}>€{Number(b.price||0).toFixed(0)}</div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                  {b.status === 'confirmed' && <button onClick={() => updateStatus(b.id, 'in_progress')} style={{ padding: '5px 12px', background: '#f59e0b20', color: '#f59e0b', border: '1px solid #f59e0b40', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>▶ Inizia</button>}
-                  {b.status === 'in_progress' && <button onClick={() => updateStatus(b.id, 'completed')} style={{ padding: '5px 12px', background: '#10b98120', color: '#10b981', border: '1px solid #10b98140', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>✓ Completa</button>}
-                  {['confirmed', 'in_progress'].includes(b.status) && <button onClick={() => updateStatus(b.id, 'cancelled')} style={{ padding: '5px 12px', background: '#ef444420', color: '#ef4444', border: '1px solid #ef444440', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>✕ Cancella</button>}
-                  <Link href={`/dashboard/fatture/nuova?source=padel&id=${b.id}`} style={{ padding: '5px 12px', background: '#ef444415', color: '#ef4444', border: '1px solid #ef444430', borderRadius: '6px', fontSize: '12px', fontWeight: '500', textDecoration: 'none' }}>🧾 Fattura</Link>
+                <div style={{ display:'flex', gap:'6px', marginTop:'12px', flexWrap:'wrap' }}>
+                  {b.status === 'confirmed' && <>
+                    <button onClick={()=>updateStatus(b.id,'in_progress')} style={{ padding:'5px 12px', background:'#f59e0b20', color:'#f59e0b', border:'1px solid #f59e0b40', borderRadius:'6px', cursor:'pointer', fontSize:'12px' }}>▶ In corso</button>
+                    <button onClick={()=>updateStatus(b.id,'cancelled')} style={{ padding:'5px 12px', background:'#ef444420', color:'#ef4444', border:'1px solid #ef444440', borderRadius:'6px', cursor:'pointer', fontSize:'12px' }}>✕ Cancella</button>
+                  </>}
+                  {b.status === 'in_progress' && (
+                    <button onClick={()=>updateStatus(b.id,'completed')} style={{ padding:'5px 12px', background:'#10b98120', color:'#10b981', border:'1px solid #10b98140', borderRadius:'6px', cursor:'pointer', fontSize:'12px' }}>✓ Completa e paga</button>
+                  )}
                 </div>
               </div>
             )
@@ -149,45 +190,9 @@ export default function PadelPrenotazioniPage() {
         </div>
       </div>
 
-      {showForm && (
-        <div style={{ position: 'fixed', inset: 0, background: '#000000aa', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ background: '#111118', border: '1px solid #2a2a3a', borderRadius: '16px', padding: '32px', width: '500px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f1f1', marginTop: 0, marginBottom: '24px' }}>Nuova Prenotazione Padel</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-              <div style={{ gridColumn: '1/-1' }}><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Nome giocatore *</label><input style={inputStyle} value={form.player_name} onChange={e => setForm({ ...form, player_name: e.target.value })} /></div>
-              <div><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Telefono</label><input style={inputStyle} value={form.player_phone} onChange={e => setForm({ ...form, player_phone: e.target.value })} /></div>
-              <div><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Email</label><input style={inputStyle} value={form.player_email} onChange={e => setForm({ ...form, player_email: e.target.value })} /></div>
-              <div style={{ gridColumn: '1/-1' }}><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Campo *</label>
-                <select style={inputStyle} value={form.court_id} onChange={e => setForm({ ...form, court_id: e.target.value })}>
-                  <option value="">— Seleziona campo —</option>
-                  {courts.map(c => <option key={c.id} value={c.id}>{c.name} · €{c.price_per_hour}/h</option>)}
-                </select>
-              </div>
-              <div><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Data *</label><input style={inputStyle} type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
-              <div><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Giocatori</label><input style={inputStyle} type="number" min="2" max="4" value={form.players_count} onChange={e => setForm({ ...form, players_count: parseInt(e.target.value) })} /></div>
-              <div><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Inizio</label><input style={inputStyle} type="time" value={form.start_time} onChange={e => setForm({ ...form, start_time: e.target.value })} /></div>
-              <div><label style={{ display: 'block', fontSize: '12px', color: '#9ca3af', marginBottom: '6px' }}>Fine</label><input style={inputStyle} type="time" value={form.end_time} onChange={e => setForm({ ...form, end_time: e.target.value })} /></div>
-            </div>
-            <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
-              <button onClick={() => setShowForm(false)} style={{ flex: 1, padding: '10px', background: '#1f2030', color: '#9ca3af', border: '1px solid #2a2a3a', borderRadius: '8px', cursor: 'pointer' }}>Annulla</button>
-              <button onClick={save} disabled={!form.player_name || !form.court_id || !form.date} style={{ flex: 1, padding: '10px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '500' }}>Salva</button>
-            </div>
-          </div>
-        </div>
+      {paymentModal && (
+        <PaymentModal title={`Completa — ${paymentModal.bk?.player_name||''}`} amount={Number(paymentModal.bk?.price||0)} onConfirm={handlePayment} onCancel={()=>setPaymentModal(null)} />
       )}
-
-      {/* Modal pagamento */}
-      {paymentModal && (() => {
-        const b = bookings.find(x => x.id === paymentModal.bookingId)
-        return (
-          <PaymentModal
-            title={`Padel ${b?.court?.name || ''} — ${b?.player_name || ''}`}
-            amount={Number(b?.price || 0)}
-            onConfirm={handlePaymentConfirm}
-            onCancel={() => setPaymentModal(null)}
-          />
-        )
-      })()}
     </div>
   )
 }

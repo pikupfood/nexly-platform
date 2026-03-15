@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { getTenantId } from '@/lib/tenant'
 import Link from 'next/link'
+import { useStaffNav } from '@/lib/useStaffNav'
 
 export default function PrenotazioniRistorantePage() {
   const router = useRouter()
+  const { backHref } = useStaffNav()
   const [reservations, setReservations] = useState<any[]>([])
   const [tables, setTables] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -57,16 +59,16 @@ export default function PrenotazioniRistorantePage() {
   }
 
   const filtered = reservations.filter(r => !dateFilter || r.date === dateFilter)
-  const inputStyle = { width: '100%', padding: '10px 14px', background: '#0a0a0f', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#f1f1f1', fontSize: '14px', outline: 'none', boxSizing: 'border-box' as const }
+  const inputStyle = { width: '100%', padding: '10px 14px', background: 'white', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#f1f1f1', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }
 
   if (loading) return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ minHeight: '100vh', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ color: '#6b7280' }}>Caricamento...</div>
     </div>
   )
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a0a0f', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: 'white', fontFamily: 'system-ui, sans-serif' }}>
       <div style={{ borderBottom: '1px solid #1f2030', padding: '16px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           <Link href="/dashboard/ristorante" style={{ color: '#6b7280', textDecoration: 'none', fontSize: '14px' }}>← Ristorante</Link>
@@ -76,7 +78,7 @@ export default function PrenotazioniRistorantePage() {
         <button onClick={() => setShowForm(true)} style={{ padding: '8px 16px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '500' }}>+ Nuova</button>
       </div>
 
-      <div style={{ padding: '32px' }}>
+      <div style={{ padding: '20px 24px' }}>
         <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', alignItems: 'center' }}>
           <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} style={{ padding: '8px 14px', background: '#111118', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#f1f1f1', fontSize: '14px' }} />
           <button onClick={() => setDateFilter('')} style={{ padding: '8px 14px', background: '#111118', border: '1px solid #2a2a3a', borderRadius: '8px', color: '#9ca3af', cursor: 'pointer', fontSize: '13px' }}>Tutte le date</button>
@@ -128,7 +130,7 @@ export default function PrenotazioniRistorantePage() {
 
       {showForm && (
         <div style={{ position: 'fixed', inset: 0, background: '#000000aa', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ background: '#111118', border: '1px solid #2a2a3a', borderRadius: '16px', padding: '32px', width: '500px', maxHeight: '90vh', overflowY: 'auto' }}>
+          <div style={{ background: '#111118', border: '1px solid #2a2a3a', borderRadius: '16px', padding: '20px 24px', width: '500px', maxHeight: '90vh', overflowY: 'auto' }}>
             <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#f1f1f1', marginTop: 0, marginBottom: '24px' }}>Nuova Prenotazione</h2>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
               <div style={{ gridColumn: '1/-1' }}>
