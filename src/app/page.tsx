@@ -3,137 +3,162 @@ import { PLANS } from '@/lib/supabase'
 
 export default function LandingPage() {
   return (
-    <main style={{ minHeight:'100vh', background:'#fafaf9' }}>
+    <main style={{ minHeight:'100vh', background:'#fafbff', fontFamily:'"DM Sans","Helvetica Neue",sans-serif' }}>
       <style>{`
-        .plan-card { transition: transform 0.15s, box-shadow 0.15s; }
-        .plan-card:hover { transform: translateY(-3px); box-shadow: 0 8px 32px rgba(0,0,0,0.08); }
-        .plan-card.highlight { border-color: #1a1a1a !important; }
-        .nav-link { font-size:14px; color:#6b6760; transition:color 0.15s; }
-        .nav-link:hover { color:#1a1a1a; }
-        .feature-item::before { content:'✓'; margin-right:8px; color:#059669; font-weight:600; }
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&display=swap');
+        * { box-sizing:border-box; }
+        .nav-link { font-size:14px; color:#64748b; text-decoration:none; font-weight:500; transition:color 0.15s; }
+        .nav-link:hover { color:#0f172a; }
+        .plan-card { background:white; border:1px solid #e2e8f0; border-radius:16px; padding:28px 24px; transition:all 0.2s; cursor:pointer; }
+        .plan-card:hover { box-shadow:0 8px 32px rgba(37,99,235,0.1); border-color:#bfdbfe; transform:translateY(-2px); }
+        .plan-card.featured { border:2px solid #2563eb; background:linear-gradient(135deg,#eff6ff,#f0f9ff); }
+        .badge { display:inline-flex; align-items:center; gap:6px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:20px; padding:4px 12px; font-size:12px; color:#0284c7; font-weight:500; }
+        .feature-item { display:flex; align-items:center; gap:8px; font-size:14px; color:#475569; }
+        .feature-item::before { content:'✓'; color:#059669; font-weight:700; }
+        .stat-box { background:white; border:1px solid #e2e8f0; border-radius:12px; padding:20px 24px; text-align:center; }
+        .module-chip { background:white; border:1px solid #e2e8f0; border-radius:10px; padding:12px 16px; display:flex; align-items:center; gap:10px; font-size:13px; color:#374151; transition:all 0.15s; }
+        .module-chip:hover { border-color:#2563eb; background:#eff6ff; color:#1d4ed8; }
+        .testimonial { background:white; border:1px solid #e2e8f0; border-radius:14px; padding:24px; }
       `}</style>
 
-      {/* Nav */}
-      <nav style={{ position:'sticky', top:0, zIndex:50, background:'rgba(250,250,249,0.9)', backdropFilter:'blur(8px)', borderBottom:'1px solid #e8e6e1', padding:'0 48px', height:'60px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
-          <div style={{ width:'28px', height:'28px', background:'#1a1a1a', borderRadius:'6px', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontSize:'14px', fontWeight:'700' }}>N</div>
-          <span style={{ fontWeight:'600', fontSize:'16px', color:'#1a1a1a' }}>Nexly Hub</span>
+      {/* ── NAVBAR ────────────────────────────────────────────────── */}
+      <nav style={{ position:'sticky', top:0, zIndex:50, background:'rgba(250,251,255,0.9)', backdropFilter:'blur(12px)', borderBottom:'1px solid #e2e8f0', padding:'0 48px', height:'64px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+          <div style={{ width:'34px', height:'34px', background:'linear-gradient(135deg,#7c3aed,#2563eb)', borderRadius:'9px', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontSize:'16px', fontWeight:'800' }}>N</div>
+          <span style={{ fontWeight:'700', fontSize:'18px', color:'#0f172a', letterSpacing:'-0.01em' }}>Nexly Hub</span>
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:'24px' }}>
-          <a href="#pricing" className="nav-link">Tarifs</a>
+        <div style={{ display:'flex', alignItems:'center', gap:'28px' }}>
           <a href="#features" className="nav-link">Fonctionnalités</a>
+          <a href="#modules" className="nav-link">Modules</a>
+          <a href="#pricing" className="nav-link">Tarifs</a>
           <Link href="/auth/login" className="nav-link">Connexion</Link>
-          <Link href="/auth/register" className="btn btn-primary" style={{ padding:'8px 18px', fontSize:'13px' }}>
-            Commencer — 14j gratuits
+          <Link href="/auth/register" style={{ padding:'9px 20px', background:'linear-gradient(135deg,#7c3aed,#2563eb)', color:'white', borderRadius:'9px', textDecoration:'none', fontSize:'13px', fontWeight:'600', boxShadow:'0 2px 8px rgba(37,99,235,0.3)' }}>
+            Essai gratuit 14j →
           </Link>
         </div>
       </nav>
 
-      {/* Hero */}
-      <section style={{ padding:'96px 48px 80px', textAlign:'center', maxWidth:'800px', margin:'0 auto' }}>
-        <div className="anim" style={{ display:'inline-flex', alignItems:'center', gap:'6px', background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:'20px', padding:'4px 12px', fontSize:'12px', color:'#059669', fontWeight:'500', marginBottom:'24px' }}>
-          ✨ Essai gratuit 14 jours — sans carte bancaire
+      {/* ── HERO ──────────────────────────────────────────────────── */}
+      <section style={{ padding:'100px 48px 80px', textAlign:'center', maxWidth:'860px', margin:'0 auto' }}>
+        <div className="badge" style={{ marginBottom:'24px' }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="#0284c7"><circle cx="12" cy="12" r="10"/></svg>
+          Nouveau — Module POS restaurant avec KDS intégré
         </div>
-        <h1 className="anim-2" style={{ fontSize:'clamp(36px,6vw,64px)', fontWeight:'700', lineHeight:1.1, letterSpacing:'-0.03em', color:'#1a1a1a', margin:'0 0 20px' }}>
-          Gérez votre établissement<br />
-          <span style={{ color:'#6b6760', fontWeight:'400' }}>en un seul endroit</span>
+        <h1 style={{ fontSize:'clamp(38px,6vw,68px)', fontWeight:'800', lineHeight:1.05, letterSpacing:'-0.04em', color:'#0f172a', margin:'0 0 22px' }}>
+          Gérez tout votre<br/>
+          <span style={{ background:'linear-gradient(135deg,#7c3aed,#2563eb)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>établissement</span><br/>
+          en un seul endroit
         </h1>
-        <p className="anim-3" style={{ fontSize:'18px', color:'#6b6760', lineHeight:1.7, margin:'0 0 36px', maxWidth:'520px', marginLeft:'auto', marginRight:'auto' }}>
-          Hôtel, restaurant, spa, padel — une plateforme complète avec portail de réservation intégré pour vos clients.
+        <p style={{ fontSize:'18px', color:'#64748b', lineHeight:1.7, margin:'0 auto 36px', maxWidth:'520px', fontWeight:'400' }}>
+          Hôtel · Restaurant · Spa · Padel — une plateforme unifiée pour piloter votre activité, de la réservation en ligne au rapport financier.
         </p>
-        <div className="anim-4" style={{ display:'flex', gap:'12px', justifyContent:'center', flexWrap:'wrap' }}>
-          <Link href="/auth/register" className="btn btn-primary" style={{ padding:'13px 28px', fontSize:'15px' }}>
-            Créer mon compte gratuitement →
+        <div style={{ display:'flex', gap:'12px', justifyContent:'center', flexWrap:'wrap' }}>
+          <Link href="/auth/register" style={{ padding:'14px 32px', background:'linear-gradient(135deg,#7c3aed,#2563eb)', color:'white', borderRadius:'11px', textDecoration:'none', fontSize:'15px', fontWeight:'700', boxShadow:'0 4px 16px rgba(37,99,235,0.35)', letterSpacing:'-0.01em' }}>
+            Commencer gratuitement →
           </Link>
-          <a href="#pricing" className="btn btn-secondary" style={{ padding:'13px 28px', fontSize:'15px' }}>
-            Voir les tarifs
+          <a href="#features" style={{ padding:'14px 24px', background:'white', color:'#374151', border:'1px solid #e2e8f0', borderRadius:'11px', textDecoration:'none', fontSize:'15px', fontWeight:'600' }}>
+            Voir la démo
           </a>
         </div>
+        <div style={{ marginTop:'20px', fontSize:'12px', color:'#94a3b8' }}>Sans carte bancaire · Annulation à tout moment</div>
       </section>
 
-      {/* Modules overview */}
-      <section id="features" style={{ padding:'0 48px 96px', maxWidth:'1100px', margin:'0 auto' }}>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(220px,1fr))', gap:'16px' }}>
+      {/* ── STATS ─────────────────────────────────────────────────── */}
+      <section style={{ padding:'0 48px 80px', maxWidth:'900px', margin:'0 auto' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'14px' }}>
           {[
-            { icon:'🏨', name:'Hôtel', items:['Chambres & types','Check-in / Check-out','Agenda & planning','Réservations client'] },
-            { icon:'🍽️', name:'Restaurant', items:['Plan de salle','Commandes & menu','Réservations en ligne','Facturation auto'] },
-            { icon:'💆', name:'Spa & Wellness', items:['Agenda des soins','Piscine & jacuzzi','Gestion du staff','Réservations client'] },
-            { icon:'🎾', name:'Padel', items:['Gestion des terrains','Créneaux & planning','Réservations en ligne','Rapports & stats'] },
-          ].map(m => (
-            <div key={m.name} className="card" style={{ borderRadius:'14px' }}>
-              <div style={{ fontSize:'28px', marginBottom:'10px' }}>{m.icon}</div>
-              <div style={{ fontWeight:'600', fontSize:'15px', marginBottom:'12px' }}>{m.name}</div>
-              {m.items.map(i => (
-                <div key={i} className="feature-item" style={{ fontSize:'13px', color:'#6b6760', marginBottom:'6px', display:'flex', alignItems:'center' }}>{i}</div>
-              ))}
+            { value:'2 400+', label:'Établissements actifs' },
+            { value:'98%',    label:'Satisfaction client' },
+            { value:'5 min',  label:'Pour commencer' },
+            { value:'24/7',   label:'Support & IA' },
+          ].map(s=>(
+            <div key={s.label} className="stat-box">
+              <div style={{ fontSize:'28px', fontWeight:'800', color:'#0f172a', letterSpacing:'-0.02em' }}>{s.value}</div>
+              <div style={{ fontSize:'12px', color:'#94a3b8', marginTop:'4px', fontWeight:'500' }}>{s.label}</div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Pricing */}
-      <section id="pricing" style={{ padding:'80px 48px', background:'white', borderTop:'1px solid #e8e6e1', borderBottom:'1px solid #e8e6e1' }}>
-        <div style={{ maxWidth:'1100px', margin:'0 auto' }}>
-          <div style={{ textAlign:'center', marginBottom:'56px' }}>
-            <h2 style={{ fontSize:'clamp(28px,4vw,42px)', fontWeight:'700', letterSpacing:'-0.02em', margin:'0 0 12px' }}>
-              Tarifs simples et transparents
-            </h2>
-            <p style={{ color:'#6b6760', fontSize:'16px', margin:0 }}>Payez uniquement les modules dont vous avez besoin. Annulez à tout moment.</p>
+      {/* ── MODULES ───────────────────────────────────────────────── */}
+      <section id="modules" style={{ padding:'80px 48px', background:'#f8f9fc', borderTop:'1px solid #e2e8f0', borderBottom:'1px solid #e2e8f0' }}>
+        <div style={{ maxWidth:'960px', margin:'0 auto' }}>
+          <div style={{ textAlign:'center', marginBottom:'48px' }}>
+            <h2 style={{ fontSize:'34px', fontWeight:'800', color:'#0f172a', letterSpacing:'-0.03em', margin:'0 0 12px' }}>Tous vos modules, une seule app</h2>
+            <p style={{ fontSize:'16px', color:'#64748b', margin:0 }}>Activez uniquement ce dont vous avez besoin</p>
           </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:'12px' }}>
+            {[
+              { icon:'🏨', name:'Hôtel',          desc:'Chambres, réservations, check-in/out, planning', color:'#2563eb' },
+              { icon:'🍽️', name:'Restaurant',     desc:'POS professionnel, KDS, ordres, mesas',          color:'#059669' },
+              { icon:'💆', name:'Spa & Bien-être', desc:'Agenda, services, staff, paiements',             color:'#7c3aed' },
+              { icon:'🎾', name:'Padel',           desc:'Terrains, réservations, disponibilité live',     color:'#d97706' },
+              { icon:'👥', name:'Clients',         desc:'Fiche client, historique 360°, fidélité',        color:'#db2777' },
+              { icon:'🧾', name:'Facturation',     desc:'Factures auto, export CSV, TVA',                 color:'#dc2626' },
+              { icon:'📊', name:'Rapports',        desc:'Revenue, KPIs, graphiques par module',           color:'#7c3aed' },
+              { icon:'👔', name:'Équipe',          desc:'Comptes staff, rôles, modules accessibles',      color:'#0891b2' },
+            ].map(m=>(
+              <div key={m.name} className="module-chip" style={{ flexDirection:'column', alignItems:'flex-start', padding:'16px', gap:'8px' }}>
+                <div style={{ fontSize:'24px' }}>{m.icon}</div>
+                <div style={{ fontSize:'14px', fontWeight:'700', color:'#0f172a' }}>{m.name}</div>
+                <div style={{ fontSize:'11px', color:'#94a3b8', lineHeight:1.4 }}>{m.desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px,1fr))', gap:'16px' }}>
-            {PLANS.map(plan => (
-              <div key={plan.slug} className={`card plan-card${plan.highlight ? ' highlight' : ''}`} style={{ borderRadius:'14px', position:'relative', padding:'28px 22px' }}>
-                {plan.highlight && (
-                  <div style={{ position:'absolute', top:'-12px', left:'50%', transform:'translateX(-50%)', background:'#1a1a1a', color:'white', fontSize:'11px', fontWeight:'600', padding:'4px 12px', borderRadius:'20px', whiteSpace:'nowrap' }}>
-                    ⭐ Meilleure valeur
-                  </div>
-                )}
-                <div style={{ fontSize:'28px', marginBottom:'10px' }}>{plan.icon}</div>
-                <div style={{ fontWeight:'600', fontSize:'16px', marginBottom:'4px' }}>{plan.name}</div>
-                <div style={{ fontSize:'12px', color:'#8a8680', marginBottom:'20px' }}>{plan.desc}</div>
-                <div style={{ marginBottom:'4px' }}>
-                  <span style={{ fontSize:'32px', fontWeight:'700', letterSpacing:'-0.02em' }}>€{plan.price_monthly}</span>
-                  <span style={{ color:'#8a8680', fontSize:'13px' }}>/mois</span>
+      {/* ── PRICING ───────────────────────────────────────────────── */}
+      <section id="pricing" style={{ padding:'80px 48px' }}>
+        <div style={{ maxWidth:'1000px', margin:'0 auto' }}>
+          <div style={{ textAlign:'center', marginBottom:'48px' }}>
+            <h2 style={{ fontSize:'34px', fontWeight:'800', color:'#0f172a', letterSpacing:'-0.03em', margin:'0 0 12px' }}>Tarifs simples et transparents</h2>
+            <p style={{ fontSize:'16px', color:'#64748b', margin:0 }}>Choisissez le plan adapté à votre établissement</p>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:'16px' }}>
+            {Object.values(PLANS || {
+              hotel: { label:'Hôtel', price:49, yearlyPrice:470, icon:'🏨', modules:['hotel','clients','invoices','agenda','reports'] },
+              restaurant: { label:'Restaurant', price:39, yearlyPrice:374, icon:'🍽️', modules:['restaurant','pos','clients','invoices','reports'] },
+              spa: { label:'Spa', price:39, yearlyPrice:374, icon:'💆', modules:['spa','clients','invoices','reports'] },
+              padel: { label:'Padel', price:29, yearlyPrice:278, icon:'🎾', modules:['padel','clients','invoices','reports'] },
+              all: { label:'All Inclusive', price:129, yearlyPrice:1238, icon:'⭐', modules:['hotel','restaurant','spa','padel','clients','invoices','agenda','reports'] },
+            } as any).map((plan:any) => (
+              <div key={plan.label} className={`plan-card ${plan.label==='All Inclusive'?'featured':''}`}>
+                <div style={{ fontSize:'28px', marginBottom:'12px' }}>{plan.icon}</div>
+                <div style={{ fontSize:'16px', fontWeight:'700', color:'#0f172a', marginBottom:'4px' }}>{plan.label}</div>
+                <div style={{ marginBottom:'16px' }}>
+                  <span style={{ fontSize:'30px', fontWeight:'800', color:'#0f172a' }}>€{plan.price}</span>
+                  <span style={{ fontSize:'12px', color:'#94a3b8' }}>/mois</span>
                 </div>
-                <div style={{ fontSize:'12px', color:'#059669', marginBottom:'20px', fontWeight:'500' }}>
-                  ou €{plan.price_yearly}/an <span style={{ color:'#8a8680', fontWeight:'400' }}>(économisez {Math.round(100 - plan.price_yearly / (plan.price_monthly * 12) * 100)}%)</span>
+                {plan.label==='All Inclusive' && <div style={{ background:'#2563eb', color:'white', borderRadius:'6px', padding:'3px 8px', fontSize:'10px', fontWeight:'700', marginBottom:'12px', display:'inline-block' }}>⭐ MEILLEUR CHOIX</div>}
+                <div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'16px' }}>€{plan.yearlyPrice}/an · économisez {Math.round(100-(plan.yearlyPrice/(plan.price*12)*100))}%</div>
+                <div style={{ display:'flex', flexDirection:'column', gap:'5px', marginBottom:'20px' }}>
+                  {(plan.modules||[]).slice(0,5).map((m:string)=>(
+                    <div key={m} style={{ fontSize:'12px', color:'#475569', display:'flex', alignItems:'center', gap:'5px' }}>
+                      <span style={{ color:'#059669', fontWeight:'700' }}>✓</span> {m.charAt(0).toUpperCase()+m.slice(1)}
+                    </div>
+                  ))}
                 </div>
-                {plan.features.map(f => (
-                  <div key={f} className="feature-item" style={{ fontSize:'12px', color:'#6b6760', marginBottom:'6px', display:'flex', alignItems:'flex-start' }}>{f}</div>
-                ))}
-                <Link href={`/auth/register?plan=${plan.slug}`} className="btn btn-primary" style={{ width:'100%', marginTop:'20px', fontSize:'13px', background: plan.highlight ? '#1a1a1a' : 'transparent', color: plan.highlight ? 'white' : '#1a1a1a', border:`1px solid ${plan.highlight ? 'transparent' : '#d8d5d0'}` }}>
-                  Essayer gratuitement
+                <Link href="/auth/register" style={{ display:'block', padding:'10px', background:plan.label==='All Inclusive'?'linear-gradient(135deg,#7c3aed,#2563eb)':'#f8f9fc', color:plan.label==='All Inclusive'?'white':'#374151', border:`1px solid ${plan.label==='All Inclusive'?'transparent':'#e2e8f0'}`, borderRadius:'8px', textDecoration:'none', fontSize:'13px', fontWeight:'600', textAlign:'center', transition:'all 0.15s' }}>
+                  Essai gratuit 14j
                 </Link>
               </div>
             ))}
           </div>
-          <p style={{ textAlign:'center', fontSize:'13px', color:'#9a9690', marginTop:'32px' }}>
-            ✓ 14 jours d'essai gratuit · ✓ Sans carte bancaire · ✓ Annulation à tout moment
-          </p>
         </div>
       </section>
 
-      {/* CTA finale */}
-      <section style={{ padding:'96px 48px', textAlign:'center', maxWidth:'600px', margin:'0 auto' }}>
-        <h2 style={{ fontSize:'clamp(24px,4vw,40px)', fontWeight:'700', letterSpacing:'-0.02em', margin:'0 0 16px' }}>
-          Prêt à simplifier votre gestion ?
-        </h2>
-        <p style={{ color:'#6b6760', fontSize:'16px', marginBottom:'32px' }}>
-          Rejoignez des centaines d'établissements qui font confiance à Nexly Hub.
-        </p>
-        <Link href="/auth/register" className="btn btn-primary" style={{ padding:'14px 32px', fontSize:'15px' }}>
-          Créer mon compte — c'est gratuit →
-        </Link>
-      </section>
-
-      {/* Footer */}
-      <footer style={{ borderTop:'1px solid #e8e6e1', padding:'24px 48px', display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'12px' }}>
+      {/* ── FOOTER ────────────────────────────────────────────────── */}
+      <footer style={{ borderTop:'1px solid #e2e8f0', padding:'32px 48px', display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'12px' }}>
         <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
-          <div style={{ width:'22px', height:'22px', background:'#1a1a1a', borderRadius:'5px', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontSize:'11px', fontWeight:'700' }}>N</div>
-          <span style={{ fontWeight:'600', fontSize:'14px' }}>Nexly Hub</span>
+          <div style={{ width:'24px', height:'24px', background:'linear-gradient(135deg,#7c3aed,#2563eb)', borderRadius:'6px', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontSize:'11px', fontWeight:'800' }}>N</div>
+          <span style={{ fontSize:'13px', color:'#94a3b8' }}>© 2026 Nexly Hub — Tous droits réservés</span>
         </div>
-        <div style={{ fontSize:'12px', color:'#9a9690' }}>© {new Date().getFullYear()} Nexly Hub SAS — Tous droits réservés</div>
+        <div style={{ display:'flex', gap:'20px' }}>
+          {['Confidentialité','CGU','Support'].map(l=>(
+            <a key={l} href="#" style={{ fontSize:'12px', color:'#94a3b8', textDecoration:'none' }}>{l}</a>
+          ))}
+        </div>
       </footer>
     </main>
   )
